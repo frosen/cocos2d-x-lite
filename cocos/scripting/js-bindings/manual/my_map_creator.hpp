@@ -23,6 +23,7 @@ bool register_my_map_creator(se::Object* obj);
 
 SE_DECLARE_FUNC(jsb_my_MapCreator_getInstance);
 SE_DECLARE_FUNC(jsb_my_MapCreator_addMapEle);
+SE_DECLARE_FUNC(jsb_my_MapCreator_addMapEleConfig);
 SE_DECLARE_FUNC(jsb_my_MapCreator_create);
 
 #endif /* my_map_creator_hpp */

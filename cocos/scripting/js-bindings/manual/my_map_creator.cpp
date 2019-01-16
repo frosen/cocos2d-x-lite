@@ -23,16 +23,6 @@ USING_NS_CC;
 
 MY_SPACE_BEGIN
 
-// 需要整数的x, y
-class MapVec {
-public:
-    MapVec();
-    virtual ~MapVec();
-
-    int x;
-    int y;
-};
-
 // 随机区域中使用的区块模板
 class MapEle {
 public:
@@ -51,11 +41,35 @@ public:
     MapEleConfig();
     virtual ~MapEleConfig();
 
-    int index; // ele序号
-    MapVec pos; // 对应元素中的位置作为起始位置
+    int eleIndex; // ele序号
+    int beginX; // 对应元素中的位置作为起始位置
+    int beginY;
 
-    std::vector<std::vector<MapVec*>> door; // 连接方向
-}
+    std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向（***每2个int一组，分别是x，y）
+
+    int getDoorLen(int key) {
+        return (int)door[key].size() / 2;
+    }
+
+    int getDoorX(int key, int index) {
+        return door[key][index * 2];
+    }
+
+    int getDoorY(int key, int index) {
+        return door[key][index * 2 + 1];
+    }
+};
+
+#define MAX_W (6)
+#define MAX_H (6)
+
+class MapEleConfigArray {
+public:
+    MapEleConfigArray();
+    virtual ~MapEleConfigArray();
+
+    std::vector<MapEleConfig*> configs[MAX_W][MAX_H]; // 对应不同w，h的随机区块使用的配置，最大宽高是固定的
+};
 
 // 模板中的固定块
 class FiTemp {
@@ -70,8 +84,22 @@ public:
 
     std::vector<std::vector<int>> te; // 地形
     std::vector<std::vector<int>> co; // 碰撞
-    std::vector<std::vector<MapVec*>> door; // 固定块的连接方向
+    std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向（***每2个int一组，分别是x，y）
+
+    int getDoorLen(int key) {
+        return (int)door[key].size() / 2;
+    }
+
+    int getDoorX(int key, int index) {
+        return door[key][index * 2];
+    }
+
+    int getDoorY(int key, int index) {
+        return door[key][index * 2 + 1];
+    }
 };
+
+#define X_EN_KEY (1000)
 
 // 地图模板
 class MapTemp {
@@ -82,15 +110,30 @@ public:
     int w;
     int h;
 
-    std::vector<int> noeps; // 无敌人位置
+    std::vector<int> noeps; // 无敌人位置（***每个int 为 x * X_EN_KEY + y 组成）
     std::vector<FiTemp*> fis; // 固定块
     std::vector<std::vector<int>> ra; // 随机块
+
+    int getNoEnemyPosX(int p) {
+        return p % X_EN_KEY;
+    }
+
+    int getNoEnemeyPosY(int p) {
+        return p - getNoEnemyPosX(p);
+    }
 };
 
 class MapData {
+public:
     MapData();
     virtual ~MapData();
+
+    std::vector<std::vector<int>> te; // 地形
+    std::vector<std::vector<int>> co; // 碰撞
+    std::vector<int> groundInfos; // 地面信息（***每3个int一组，分别是x，y，type）
 };
+
+
 
 class MapCreator {
 public:
@@ -101,6 +144,7 @@ public:
 
     // 载入区块元素
     void addMapEle(const MapEle* mapEle);
+    void addMapEleCofig(const MapEleConfigArray* configs);
 
     // 读取模板，生成地图，然后从回调传出
     void createMap(const MapTemp* mapBase, const std::function<void(MapData*)>& callback);
@@ -117,8 +161,8 @@ private:
     std::mutex _sleepMutex;
     std::condition_variable _sleepCondition;
 
-    std::vector<const MapEle*> _mapEleVec;
-    MapEleConfig _mapEleConfigs[6][6]; // 对应不同w，h的随机区块使用的配置，最大宽高是固定的
+    std::vector<MapEle*> _mapEleVec;
+    MapEleConfigArray* _mapEleConfigs;
 
     MapTemp* _mapBase;
     std::function<void(MapData*)> _callback;
@@ -127,14 +171,6 @@ private:
 };
 
 // 实现 --------------------------------------------------------------
-
-MapVec::MapVec() {
-}
-
-MapVec::~MapVec() {
-}
-
-// ---------------
 
 MapEle::MapEle() {
 }
@@ -148,9 +184,19 @@ MapEleConfig::MapEleConfig() {
 }
 
 MapEleConfig::~MapEleConfig() {
-    for (auto vec : door) {
-        for (MapVec* mapvec: vec) {
-            delete mapvec;
+}
+
+// ---------------
+
+MapEleConfigArray::MapEleConfigArray() {
+}
+
+MapEleConfigArray::~MapEleConfigArray() {
+    for (int i = 0; i < MAX_W; i++) {
+        for (int j = 0; j < MAX_H; j++) {
+            for (MapEleConfig* config : configs[i][j]) {
+                delete config;
+            }
         }
     }
 }
@@ -161,11 +207,6 @@ FiTemp::FiTemp() {
 }
 
 FiTemp::~FiTemp() {
-    for (auto vec : door) {
-        for (MapVec* mapvec: vec) {
-            delete mapvec;
-        }
-    }
 }
 
 // ---------------
@@ -201,6 +242,9 @@ MapCreator::~MapCreator() {
     for (MapEle* ele: _mapEleVec) {
         delete ele;
     }
+
+    if (_mapEleConfigs) delete _mapEleConfigs;
+
     if (_mapBase) delete _mapBase;
     if (_mapData) delete _mapData;
 }
@@ -214,7 +258,11 @@ MapCreator* MapCreator::getInstance() {
 }
 
 void MapCreator::addMapEle(const MapEle* mapEle) {
-    _mapEleVec.push_back(mapEle);
+    _mapEleVec.push_back(const_cast<MapEle*>(mapEle));
+}
+
+void MapCreator::addMapEleCofig(const MapEleConfigArray* configs) {
+    _mapEleConfigs = const_cast<MapEleConfigArray*>(configs);
 }
 
 void MapCreator::createMap(const MapTemp* mapBase, const std::function<void(MapData*)>& callback) {
@@ -312,6 +360,62 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     return true;
 }
 
+bool seval_to_mapeleConfig(const se::Value& v, MapEleConfig* ret) {
+    return true;
+}
+
+bool seval_to_mapeleConfigArray(const se::Value& v, MapEleConfigArray* ret) {
+    assert(ret != nullptr);
+    assert(v.isObject());
+    se::Object* obj = v.toObject();
+    assert(obj->isArray());
+
+    bool ok = true;
+    uint32_t len = 0;
+    ok = obj->getArrayLength(&len);
+    SE_PRECONDITION2(ok, false, "error mapeleConfig len");
+    assert(len == MAX_W);
+
+    se::Value tmp;
+    for (uint32_t i = 0; i < len; ++i) {
+        ok = obj->getArrayElement(i, &tmp);
+        SE_PRECONDITION2(ok && tmp.isObject(), false, "error mapeleConfig tmp");
+
+        se::Object* subobj = tmp.toObject();
+        assert(subobj->isArray());
+
+        uint32_t sublen = 0;
+        ok = subobj->getArrayLength(&sublen);
+        SE_PRECONDITION2(ok, false, "error mapeleConfig sublen");
+        assert(sublen == MAX_H);
+
+        se::Value subtmp;
+        for (uint32_t j = 0; j < sublen; ++j) {
+            ok = subobj->getArrayElement(j, &subtmp);
+            SE_PRECONDITION2(ok && subtmp.isObject(), false, "error mapeleConfig subtmp");
+
+            se::Object* vecobj = subtmp.toObject();
+            assert(vecobj->isArray());
+
+            uint32_t veclen = 0;
+            ok = vecobj->getArrayLength(&veclen);
+            SE_PRECONDITION2(ok, false, "error mapeleConfig veclen");
+
+            se::Value vectmp;
+            for (uint32_t k = 0; k < veclen; ++k) {
+                ok = vecobj->getArrayElement(k, &vectmp);
+                SE_PRECONDITION2(ok && vectmp.isObject(), false, "error mapeleConfig vectmp");
+
+                MapEleConfig* config = new MapEleConfig();
+                seval_to_mapeleConfig(vectmp, config);
+                ret->configs[i][j].push_back(config);
+            }
+        }
+    }
+
+    return true;
+}
+
 bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
     assert(v.isObject() && ret != nullptr);
     se::Object* obj = v.toObject();
@@ -361,10 +465,12 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
     // door
     ok = obj->getProperty("door", &door);
     SE_PRECONDITION2(ok && door.isObject(), false, "error door");
+
     se::Object* doorobj = door.toObject();
     assert(doorobj->isArray());
     ok = doorobj->getArrayLength(&len);
     SE_PRECONDITION2(ok, false, "error door len");
+    assert(len == 4); // 上下左右，只能是4个
 
     for (uint32_t i = 0; i < len; ++i) {
         ok = doorobj->getArrayElement(i, &tmp);
@@ -377,28 +483,15 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
         ok = subobj->getArrayLength(&sublen);
         SE_PRECONDITION2(ok, false, "error door sublen");
 
-        std::vector<MapVec*> subVec;
+        std::vector<int> subVec;
         se::Value subtmp;
         for (uint32_t j = 0; j < sublen; ++j) {
             ok = subobj->getArrayElement(j, &subtmp);
-            SE_PRECONDITION2(ok && subtmp.isObject(), false, "error door sub tmp");
-
-            MapVec* v2 = new MapVec();
-
-            se::Object* v2obj = subtmp.toObject();
-            se::Value xx;
-            se::Value yy;
-            ok = v2obj->getProperty("x", &xx);
-            SE_PRECONDITION2(ok && xx.isNumber(), false, "error door x");
-            ok = obj->getProperty("y", &yy);
-            SE_PRECONDITION2(ok && yy.isNumber(), false, "error door y");
-            v2->x = xx.toInt32();
-            v2->y = yy.toInt32();
-
-            subVec.push_back(v2);
+            SE_PRECONDITION2(ok && subtmp.isNumber(), false, "error door sub tmp");
+            subVec.push_back(subtmp.toInt32());
         }
 
-        ret->door.push_back(subVec);
+        ret->door[i] = subVec;
     }
 
     return true;
@@ -519,6 +612,26 @@ static bool jsb_my_MapCreator_addMapEle(se::State& s) {
 }
 SE_BIND_FUNC(jsb_my_MapCreator_addMapEle);
 
+static bool jsb_my_MapCreator_addMapEleConfig(se::State& s) {
+    MapCreator* cobj = (MapCreator*)s.nativeThisObject();
+    SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_addMapEleConfig : Invalid Native Object");
+
+    const auto& args = s.args();
+    size_t argc = args.size();
+    CC_UNUSED bool ok = true;
+    if (argc == 1) {
+        MapEleConfigArray* arg0 = new MapEleConfigArray();
+        ok &= seval_to_mapeleConfigArray(args[0], arg0);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addMapEleConfig : Error processing arguments");
+
+        cobj->addMapEleCofig(arg0);
+        return true;
+    }
+    SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 1);
+    return false;
+}
+SE_BIND_FUNC(jsb_my_MapCreator_addMapEleConfig);
+
 static bool jsb_my_MapCreator_create(se::State& s) {
     MapCreator* cobj = (MapCreator*)s.nativeThisObject();
     SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_addMapEle : Invalid Native Object");
@@ -585,6 +698,7 @@ bool register_my_map_creator(se::Object* obj) {
 
     cls->defineStaticFunction("getInstance", _SE(jsb_my_MapCreator_getInstance));
     cls->defineFunction("addMapEle", _SE(jsb_my_MapCreator_addMapEle));
+    cls->defineFunction("addMapEleConfig", _SE(jsb_my_MapCreator_addMapEleConfig));
     cls->defineFunction("createMap", _SE(jsb_my_MapCreator_create));
     cls->install();
     JSBClassType::registerClass<MapCreator>(cls);
