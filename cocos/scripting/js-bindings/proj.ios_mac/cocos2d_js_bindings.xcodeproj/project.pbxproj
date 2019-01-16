@@ -275,6 +275,8 @@
 		4DFA4C111CBCC49000E3B736 /* jsb_creator_auto.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DFA4C0E1CBCC49000E3B736 /* jsb_creator_auto.cpp */; };
 		4DFA4C121CBCC49000E3B736 /* jsb_creator_auto.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4DFA4C0F1CBCC49000E3B736 /* jsb_creator_auto.hpp */; };
 		4DFA4C131CBCC49000E3B736 /* jsb_creator_auto.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4DFA4C0F1CBCC49000E3B736 /* jsb_creator_auto.hpp */; };
+		65162D4021EDAEA6008569B2 /* my_map_creator.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 65162D3F21EDAEA6008569B2 /* my_map_creator.hpp */; };
+		65162D4221EDAEAD008569B2 /* my_map_creator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 65162D4121EDAEAD008569B2 /* my_map_creator.cpp */; };
 		B38AD56E1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B38AD56C1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.cpp */; };
 		B38AD56F1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.hpp in Headers */ = {isa = PBXBuildFile; fileRef = B38AD56D1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.hpp */; };
 		BA4F59841E28DCD3003F5096 /* jsb_cocos2dx_network_auto.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BA4F59821E28DCD3003F5096 /* jsb_cocos2dx_network_auto.cpp */; };
@@ -447,6 +449,8 @@
 		4D9BB1F71DFAB8B300B58565 /* jsb_box2d_auto.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = jsb_box2d_auto.hpp; sourceTree = "<group>"; };
 		4DFA4C0E1CBCC49000E3B736 /* jsb_creator_auto.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = jsb_creator_auto.cpp; sourceTree = "<group>"; };
 		4DFA4C0F1CBCC49000E3B736 /* jsb_creator_auto.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = jsb_creator_auto.hpp; sourceTree = "<group>"; };
+		65162D3F21EDAEA6008569B2 /* my_map_creator.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = my_map_creator.hpp; sourceTree = "<group>"; };
+		65162D4121EDAEAD008569B2 /* my_map_creator.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = my_map_creator.cpp; sourceTree = "<group>"; };
 		B38AD56C1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = jsb_cocos2dx_experimental_video_auto.cpp; sourceTree = "<group>"; };
 		B38AD56D1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = jsb_cocos2dx_experimental_video_auto.hpp; sourceTree = "<group>"; };
 		BA4F59821E28DCD3003F5096 /* jsb_cocos2dx_network_auto.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = jsb_cocos2dx_network_auto.cpp; sourceTree = "<group>"; };
@@ -526,6 +530,8 @@
 		1A119E4118BDF19200352BAA /* manual */ = {
 			isa = PBXGroup;
 			children = (
+				65162D4121EDAEAD008569B2 /* my_map_creator.cpp */,
+				65162D3F21EDAEA6008569B2 /* my_map_creator.hpp */,
 				1AD53ADB1FB1B32A000F476C /* jsb_opengl_functions.cpp */,
 				1AD53ADA1FB1B329000F476C /* jsb_opengl_functions.hpp */,
 				1AD53ACE1FB1B2BE000F476C /* jsb_opengl_manual.cpp */,
@@ -720,6 +726,7 @@
 			files = (
 				4D672A881F8E0EE30073B9A4 /* jsb_creator_camera_auto.hpp in Headers */,
 				4DFA4C121CBCC49000E3B736 /* jsb_creator_auto.hpp in Headers */,
+				65162D4021EDAEA6008569B2 /* my_map_creator.hpp in Headers */,
 				1AFD365C1EF115100097DBB1 /* SeApi.h in Headers */,
 				1AFD36961EF115100097DBB1 /* ScriptEngine.hpp in Headers */,
 				1A210D961F456821006CCBAE /* MappingUtils.hpp in Headers */,
@@ -973,6 +980,7 @@
 				1AFD36941EF115100097DBB1 /* ScriptEngine.cpp in Sources */,
 				1A159D501F13216F00558E38 /* jsb_socketio.cpp in Sources */,
 				1AFD36801EF115100097DBB1 /* State.cpp in Sources */,
+				65162D4221EDAEAD008569B2 /* my_map_creator.cpp in Sources */,
 				1A81B4201F137BFE008C38F8 /* JavaScriptObjCBridge.mm in Sources */,
 				1A119E8F18BDF19200352BAA /* jsb_cocos2dx_extension_auto.cpp in Sources */,
 				1AFD369E1EF115100097DBB1 /* Value.cpp in Sources */,

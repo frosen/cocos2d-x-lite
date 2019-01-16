@@ -112,6 +112,8 @@
 #include "cocos/scripting/js-bindings/manual/JavaScriptJavaBridge.h"
 #endif
 
+#include "cocos/scripting/js-bindings/manual/my_map_creator.hpp"
+
 #include "cocos2d.h"
 
 using namespace cocos2d;
@@ -217,6 +219,8 @@ bool jsb_register_all_modules()
 #if (CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID)
     se->addRegisterCallback(register_javascript_java_bridge);
 #endif
+
+    se->addRegisterCallback(register_my_map_creator);
 
     // run_boot_script has to be at last.
     se->addRegisterCallback(run_boot_script);

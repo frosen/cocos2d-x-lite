@@ -83,7 +83,7 @@ bool AppDelegate::applicationDidFinishLaunching()
     runtimeEngine->start();
 
     // Runtime end
-    cocos2d::log("iShow!");
+    cocos2d::log("my cocos iShow!");
     return true;
 }
 
