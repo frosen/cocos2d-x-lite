@@ -7,6 +7,7 @@
 
 #include "my_map_creator.hpp"
 #include <thread>
+#include <random>
 
 #include "scripting/js-bindings/auto/jsb_cocos2dx_auto.hpp"
 #include "scripting/js-bindings/manual/jsb_conversions.hpp"
@@ -19,9 +20,29 @@
 
 USING_NS_CC;
 
-// 地图生成器 ----------------------------------------------------------------
+// 数据模型 ---------------------------------------------------------------
+
+static void printVecVec(std::vector<std::vector<int>> &vecvec) {
+    printf("vvvvvvvvvvvvvvv\n");
+    for (int i = 0; i < vecvec.size(); i++) {
+        std::vector<int> vec = vecvec[i];
+        for (int j = 0; j < vec.size(); j++) {
+            printf("%04d, ", vec[j]);
+        }
+        printf("\n");
+    }
+    printf("^^^^^^^^^^^^^^^\n");
+}
 
 MY_SPACE_BEGIN
+
+// 生成的临时数据 -----------------------------------------------------------
+
+class HoleData{
+
+};
+
+// 从js层获得的数据 -----------------------------------------------------------
 
 // 随机区域中使用的区块模板
 class MapEle {
@@ -112,6 +133,8 @@ public:
     }
 };
 
+// 要发送到js的数据 -----------------------------------------------------------
+
 class MapData {
 public:
     MapData();
@@ -121,6 +144,8 @@ public:
     std::vector<std::vector<int>> co; // 碰撞
     std::vector<int> groundInfos; // 地面信息（***每3个int一组，分别是x，y，type）
 };
+
+// 地图生成器 ----------------------------------------------------------------
 
 #define MAX_W (6)
 #define MAX_H (6)
@@ -141,9 +166,11 @@ public:
 
 protected:
     void init();
-
     void threadLoop();
+    void digHole();
 
+    int getRandom(int from, int to);
+    void eachMapBlock(std::vector<std::vector<int>> &vecvec, const std::function<void(int x, int y, int value)>& callback);
 private:
     bool _creating;
 
@@ -151,12 +178,14 @@ private:
     std::mutex _sleepMutex;
     std::condition_variable _sleepCondition;
 
+    // 输入数据
     std::vector<MapEle*> _mapEleVec;
     std::vector<MapEleConfig*> _mapEleConfigs[MAX_W][MAX_H]; // 对应不同w，h的随机区块使用的配置，最大宽高是固定的
 
     MapTemp* _mapBase;
     std::function<void(MapData*)> _callback;
 
+    // 输出数据
     MapData* _mapData;
 };
 
@@ -211,7 +240,7 @@ MapCreator::MapCreator():
 _creating(false),
 _mapBase(nullptr),
 _mapData(nullptr) {
-
+    srand((int)time(0));
 }
 
 MapCreator::~MapCreator() {
@@ -278,14 +307,122 @@ void MapCreator::threadLoop() {
         std::unique_lock<std::mutex> lk(_sleepMutex);
         _sleepCondition.wait(lk);
 
-        log("hahahahahaha");
+        log("begin to create map");
+
+        digHole();
 
         // 结束
         auto sch = cocos2d::Director::getInstance()->getScheduler();
         sch->performFunctionInCocosThread([=]() {
             _creating = false;
-            _callback(_mapData);
+//            _callback(_mapData);
         });
+    }
+}
+
+void MapCreator::digHole() {
+    // 计算hole应该生成的数量
+    int blockW = (int)_mapBase->ra[0].size();
+    int blockH = (int)_mapBase->ra.size();
+    int blockMax = blockW * blockH;
+
+    float holeRatio = 0.5; //llytodo 要从js传入
+    int holeBlockSize = (int)(blockMax * holeRatio);
+
+    // 初始化一个矩阵，记录已经使用了的block，未使用为0，使用了为1
+    std::vector<std::vector<int>> holeMap(_mapBase->ra);
+    int creatingDir = -1;
+    int holeIndex = 0;
+
+    // 开始挖坑
+    while (true) {
+        creatingDir *= -1;
+
+        int x = getRandom(0, blockW - 1);
+        int y = getRandom(0, blockH - 1);
+
+        int value = holeMap[y][x];
+        if (value == 0) {
+            // 获得随机宽高最大值 更集中在中间的值
+            int holeWMax = getRandom(0, 1) > 0 ? getRandom(1, MAX_W) : getRandom(2, MAX_W - 1);
+            int holeHMax = getRandom(0, 1) > 0 ? getRandom(1, MAX_H) : getRandom(2, MAX_H - 1);
+
+            int curX = x;
+            int curY = y;
+
+            // 获取宽度
+            int holeW = 1;
+            for (; holeW < holeWMax; holeW++) {
+                int subCurX = x + holeW * creatingDir;
+                if (subCurX < 0 || holeMap[y].size() <= subCurX) break;
+
+                int curValue = holeMap[y][subCurX];
+                if (curValue == 0) curX = subCurX;
+                else break;
+            }
+
+            // 获取高度
+            int holeH = 1;
+            for (; holeH < holeHMax; holeH++) {
+                int subCurY = y + holeH * creatingDir;
+                if (subCurY < 0 || holeMap.size() <= subCurY) break;
+
+                int curValue = holeMap[subCurY][x];
+                if (curValue == 0) curY = subCurY;
+                else break;
+            }
+
+            // 检测另一边是否有阻挡
+            for (int holeW2 = 1; holeW2 < holeW; holeW2++) {
+                int curX2 = x + holeW2 * creatingDir;
+                int curValue = holeMap[curY][curX2];
+                if (curValue == 0) curX = curX2;
+                else {
+                    holeW = holeW2;
+                    break;
+                }
+            }
+
+            for (int holeH2 = 1; holeH2 < holeH; holeH2++) {
+                int curY2 = y + holeH2 * creatingDir;
+                int curValue = holeMap[curY2][curX];
+                if (curValue == 0) curY = curY2;
+                else {
+                    holeH = holeH2;
+                    break;
+                }
+            }
+
+            // 记录新hole
+            int beginX = creatingDir > 0 ? x : curX;
+            int beginY = creatingDir > 0 ? y : curY;
+            for (int i = 0; i < holeW; i++) {
+                for (int j = 0; j < holeH; j++) {
+                    holeMap[beginY + j][beginX + i] = 1000 + holeIndex;
+                }
+            }
+            holeIndex++;
+
+            // 检测是否完成
+            holeBlockSize -= (holeW * holeH);
+            if (holeBlockSize <= 0) break;
+
+        } else {
+
+        }
+    }
+}
+
+int MapCreator::getRandom(int from, int to) {
+    return (rand() % (to - from + 1)) + from;
+}
+
+void MapCreator::eachMapBlock(std::vector<std::vector<int>> &vecvec, const std::function<void(int x, int y, int value)>& callback) {
+    for (int i = 0; i < vecvec.size(); i++) {
+        std::vector<int> vec = vecvec[i];
+        for (int j = 0; j < vec.size(); j++) {
+            callback(j, i, vec[j]);
+        }
     }
 }
 
