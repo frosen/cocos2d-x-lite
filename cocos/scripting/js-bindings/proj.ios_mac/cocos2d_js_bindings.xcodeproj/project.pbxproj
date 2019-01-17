@@ -277,6 +277,7 @@
 		4DFA4C131CBCC49000E3B736 /* jsb_creator_auto.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4DFA4C0F1CBCC49000E3B736 /* jsb_creator_auto.hpp */; };
 		65162D4021EDAEA6008569B2 /* my_map_creator.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 65162D3F21EDAEA6008569B2 /* my_map_creator.hpp */; };
 		65162D4221EDAEAD008569B2 /* my_map_creator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 65162D4121EDAEAD008569B2 /* my_map_creator.cpp */; };
+		65162D8A21F02CD6008569B2 /* my_map_creator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 65162D4121EDAEAD008569B2 /* my_map_creator.cpp */; };
 		B38AD56E1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B38AD56C1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.cpp */; };
 		B38AD56F1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.hpp in Headers */ = {isa = PBXBuildFile; fileRef = B38AD56D1B1D38700057DD7F /* jsb_cocos2dx_experimental_video_auto.hpp */; };
 		BA4F59841E28DCD3003F5096 /* jsb_cocos2dx_network_auto.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BA4F59821E28DCD3003F5096 /* jsb_cocos2dx_network_auto.cpp */; };
@@ -1034,6 +1035,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				65162D8A21F02CD6008569B2 /* my_map_creator.cpp in Sources */,
 				1AD53ADF1FB2B1E1000F476C /* jsb_opengl_manual.cpp in Sources */,
 				1AFD36551EF115100097DBB1 /* Object.cpp in Sources */,
 				1A159D511F13216F00558E38 /* jsb_socketio.cpp in Sources */,

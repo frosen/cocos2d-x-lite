@@ -60,17 +60,6 @@ public:
     }
 };
 
-#define MAX_W (6)
-#define MAX_H (6)
-
-class MapEleConfigArray {
-public:
-    MapEleConfigArray();
-    virtual ~MapEleConfigArray();
-
-    std::vector<MapEleConfig*> configs[MAX_W][MAX_H]; // 对应不同w，h的随机区块使用的配置，最大宽高是固定的
-};
-
 // 模板中的固定块
 class FiTemp {
 public:
@@ -133,7 +122,8 @@ public:
     std::vector<int> groundInfos; // 地面信息（***每3个int一组，分别是x，y，type）
 };
 
-
+#define MAX_W (6)
+#define MAX_H (6)
 
 class MapCreator {
 public:
@@ -144,7 +134,7 @@ public:
 
     // 载入区块元素
     void addMapEle(const MapEle* mapEle);
-    void addMapEleCofig(const MapEleConfigArray* configs);
+    void addMapEleCofig(const int w, const int h, const MapEleConfig* config);
 
     // 读取模板，生成地图，然后从回调传出
     void createMap(const MapTemp* mapBase, const std::function<void(MapData*)>& callback);
@@ -162,7 +152,7 @@ private:
     std::condition_variable _sleepCondition;
 
     std::vector<MapEle*> _mapEleVec;
-    MapEleConfigArray* _mapEleConfigs;
+    std::vector<MapEleConfig*> _mapEleConfigs[MAX_W][MAX_H]; // 对应不同w，h的随机区块使用的配置，最大宽高是固定的
 
     MapTemp* _mapBase;
     std::function<void(MapData*)> _callback;
@@ -184,21 +174,6 @@ MapEleConfig::MapEleConfig() {
 }
 
 MapEleConfig::~MapEleConfig() {
-}
-
-// ---------------
-
-MapEleConfigArray::MapEleConfigArray() {
-}
-
-MapEleConfigArray::~MapEleConfigArray() {
-    for (int i = 0; i < MAX_W; i++) {
-        for (int j = 0; j < MAX_H; j++) {
-            for (MapEleConfig* config : configs[i][j]) {
-                delete config;
-            }
-        }
-    }
 }
 
 // ---------------
@@ -234,7 +209,8 @@ static MapCreator *s_MapCreator = nullptr;
 
 MapCreator::MapCreator():
 _creating(false),
-_mapBase(nullptr) {
+_mapBase(nullptr),
+_mapData(nullptr) {
 
 }
 
@@ -243,7 +219,13 @@ MapCreator::~MapCreator() {
         delete ele;
     }
 
-    if (_mapEleConfigs) delete _mapEleConfigs;
+    for (int i = 0; i < MAX_W; i++) {
+        for (int j = 0; j < MAX_H; j++) {
+            for (MapEleConfig* config : _mapEleConfigs[i][j]) {
+                delete config;
+            }
+        }
+    }
 
     if (_mapBase) delete _mapBase;
     if (_mapData) delete _mapData;
@@ -261,8 +243,8 @@ void MapCreator::addMapEle(const MapEle* mapEle) {
     _mapEleVec.push_back(const_cast<MapEle*>(mapEle));
 }
 
-void MapCreator::addMapEleCofig(const MapEleConfigArray* configs) {
-    _mapEleConfigs = const_cast<MapEleConfigArray*>(configs);
+void MapCreator::addMapEleCofig(const int w, const int h, const MapEleConfig* config) {
+    _mapEleConfigs[w][h].push_back(const_cast<MapEleConfig*>(config));
 }
 
 void MapCreator::createMap(const MapTemp* mapBase, const std::function<void(MapData*)>& callback) {
@@ -352,65 +334,99 @@ bool seval_to_vecvec(const se::Value& v, std::vector<std::vector<int>>* ret) {
     return true;
 }
 
-bool vecvec_to_seval(const std::vector<std::vector<int>>& v, se::Value* ret) {
-    return true;
-}
-
 bool seval_to_mapele(const se::Value& v, MapEle* ret) {
+    assert(v.isObject() && ret != nullptr);
+    se::Object* obj = v.toObject();
+
+    se::Value w;
+    se::Value h;
+    se::Value te;
+    se::Value co;
+    se::Value door;
+
+    bool ok;
+
+    // w and h
+    ok = obj->getProperty("w", &w);
+    SE_PRECONDITION2(ok && w.isNumber(), false, "error w");
+    ret->w = w.toInt32();
+
+    ok = obj->getProperty("h", &h);
+    SE_PRECONDITION2(ok && h.isNumber(), false, "error h");
+    ret->h = h.toInt32();
+
+    // te co
+    ok = obj->getProperty("te", &te);
+    SE_PRECONDITION2(ok, false, "error te");
+
+    ok = seval_to_vecvec(te, &ret->te);
+    SE_PRECONDITION2(ok, false, "error te res");
+
+    ok = obj->getProperty("co", &co);
+    SE_PRECONDITION2(ok, false, "error co");
+
+    ok = seval_to_vecvec(co, &ret->co);
+    SE_PRECONDITION2(ok, false, "error co res");
+
     return true;
 }
 
 bool seval_to_mapeleConfig(const se::Value& v, MapEleConfig* ret) {
-    return true;
-}
-
-bool seval_to_mapeleConfigArray(const se::Value& v, MapEleConfigArray* ret) {
-    assert(ret != nullptr);
-    assert(v.isObject());
+    assert(v.isObject() && ret != nullptr);
     se::Object* obj = v.toObject();
-    assert(obj->isArray());
 
-    bool ok = true;
+    se::Value eleIndex;
+    se::Value beginX;
+    se::Value beginY;
+    se::Value door;
+
+    bool ok;
     uint32_t len = 0;
-    ok = obj->getArrayLength(&len);
-    SE_PRECONDITION2(ok, false, "error mapeleConfig len");
-    assert(len == MAX_W);
+
+    // index x y
+    ok = obj->getProperty("eleIndex", &eleIndex);
+    SE_PRECONDITION2(ok && eleIndex.isNumber(), false, "error w");
+    ret->eleIndex = eleIndex.toInt32();
+
+    ok = obj->getProperty("beginX", &beginX);
+    SE_PRECONDITION2(ok && beginX.isNumber(), false, "error x");
+    ret->beginX = beginX.toInt32();
+
+    ok = obj->getProperty("beginY", &beginY);
+    SE_PRECONDITION2(ok && beginY.isNumber(), false, "error y");
+    ret->beginY = beginY.toInt32();
+
+    // door
+    ok = obj->getProperty("door", &door);
+    SE_PRECONDITION2(ok && door.isObject(), false, "error door");
+
+    se::Object* doorobj = door.toObject();
+    assert(doorobj->isArray());
+    ok = doorobj->getArrayLength(&len);
+    SE_PRECONDITION2(ok, false, "error door len");
+    assert(len == 4); // 上下左右，只能是4个
 
     se::Value tmp;
     for (uint32_t i = 0; i < len; ++i) {
-        ok = obj->getArrayElement(i, &tmp);
-        SE_PRECONDITION2(ok && tmp.isObject(), false, "error mapeleConfig tmp");
+        ok = doorobj->getArrayElement(i, &tmp);
+        SE_PRECONDITION2(ok && tmp.isObject(), false, "error door tmp");
 
         se::Object* subobj = tmp.toObject();
         assert(subobj->isArray());
 
         uint32_t sublen = 0;
         ok = subobj->getArrayLength(&sublen);
-        SE_PRECONDITION2(ok, false, "error mapeleConfig sublen");
-        assert(sublen == MAX_H);
+        SE_PRECONDITION2(ok, false, "error door sublen");
 
+        std::vector<int> subVec;
         se::Value subtmp;
         for (uint32_t j = 0; j < sublen; ++j) {
             ok = subobj->getArrayElement(j, &subtmp);
-            SE_PRECONDITION2(ok && subtmp.isObject(), false, "error mapeleConfig subtmp");
-
-            se::Object* vecobj = subtmp.toObject();
-            assert(vecobj->isArray());
-
-            uint32_t veclen = 0;
-            ok = vecobj->getArrayLength(&veclen);
-            SE_PRECONDITION2(ok, false, "error mapeleConfig veclen");
-
-            se::Value vectmp;
-            for (uint32_t k = 0; k < veclen; ++k) {
-                ok = vecobj->getArrayElement(k, &vectmp);
-                SE_PRECONDITION2(ok && vectmp.isObject(), false, "error mapeleConfig vectmp");
-
-                MapEleConfig* config = new MapEleConfig();
-                seval_to_mapeleConfig(vectmp, config);
-                ret->configs[i][j].push_back(config);
-            }
+            SE_PRECONDITION2(ok && subtmp.isNumber(), false, "error door sub tmp");
+            subVec.push_back(subtmp.toInt32());
         }
+
+        ret->door[i] = subVec;
     }
 
     return true;
@@ -430,7 +446,6 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
 
     bool ok;
     uint32_t len = 0;
-    se::Value tmp;
 
     // w and h x y
     ok = obj->getProperty("x", &x);
@@ -472,6 +487,7 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
     SE_PRECONDITION2(ok, false, "error door len");
     assert(len == 4); // 上下左右，只能是4个
 
+    se::Value tmp;
     for (uint32_t i = 0; i < len; ++i) {
         ok = doorobj->getArrayElement(i, &tmp);
         SE_PRECONDITION2(ok && tmp.isObject(), false, "error door tmp");
@@ -509,7 +525,6 @@ bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
 
     bool ok;
     uint32_t len = 0;
-    se::Value tmp;
 
     // w and h
     ok = obj->getProperty("w", &w);
@@ -529,6 +544,7 @@ bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
     ok = noepsObj->getArrayLength(&len);
     SE_PRECONDITION2(ok, false, "error noeps len");
 
+    se::Value tmp;
     for (uint32_t i = 0; i < len; ++i) {
         ok = noepsObj->getArrayElement(i, &tmp);
         SE_PRECONDITION2(ok && tmp.isNumber(), false, "error noeps obj");
@@ -544,12 +560,13 @@ bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
     ok = fisObj->getArrayLength(&len);
     SE_PRECONDITION2(ok, false, "error fisObj len");
 
+    se::Value ft;
     for (uint32_t i = 0; i < len; ++i) {
-        ok = fisObj->getArrayElement(i, &tmp);
+        ok = fisObj->getArrayElement(i, &ft);
         SE_PRECONDITION2(ok, false, "error fisObj obj");
 
         FiTemp* fiTemp = new FiTemp();
-        ok = seval_to_fitemp(tmp, fiTemp);
+        ok = seval_to_fitemp(ft, fiTemp);
         SE_PRECONDITION2(ok, false, "error fisObj fiTemp");
 
         ret->fis.push_back(fiTemp);
@@ -565,7 +582,68 @@ bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
     return true;
 }
 
+bool vecvec_to_seval(const std::vector<std::vector<int>>& v, se::Value* ret) {
+    assert(ret != nullptr);
+    se::HandleObject obj(se::Object::createArrayObject(v.size()));
+    bool ok = true;
+
+    uint32_t i = 0;
+    for (const std::vector<int>& value : v) {
+        se::Value tmp;
+        se::HandleObject subobj(se::Object::createArrayObject(value.size()));
+
+        uint32_t j = 0;
+        for (const int subvalue : value) {
+            if(!subobj->setArrayElement(j, se::Value(subvalue))) {
+                ok = false;
+                break;
+            }
+            ++j;
+        }
+        tmp.setObject(subobj);
+
+        if (!obj->setArrayElement(i, tmp)) {
+            ok = false;
+            break;
+        }
+        ++i;
+    }
+
+    if (ok)
+        ret->setObject(obj);
+
+    return ok;
+}
+
 bool mapdata_to_seval(const MapData* v, se::Value* ret) {
+    assert(v != nullptr && ret != nullptr);
+    se::HandleObject obj(se::Object::createPlainObject());
+
+    se::Value te;
+    vecvec_to_seval(v->te, &te);
+    obj->setProperty("te", te);
+
+    se::Value co;
+    vecvec_to_seval(v->co, &co);
+    obj->setProperty("co", co);
+
+    se::HandleObject groundobj(se::Object::createArrayObject(v->groundInfos.size()));
+    bool ok = true;
+
+    uint32_t i = 0;
+    for (const int value : v->groundInfos)
+    {
+        if(!groundobj->setArrayElement(i, se::Value(value))) {
+            ok = false;
+            break;
+        }
+        ++i;
+    }
+    se::Value groundtmp;
+    groundtmp.setObject(groundobj);
+    obj->setProperty("groundInfos", groundtmp);
+
+    ret->setObject(obj);
     return true;
 }
 
@@ -619,12 +697,20 @@ static bool jsb_my_MapCreator_addMapEleConfig(se::State& s) {
     const auto& args = s.args();
     size_t argc = args.size();
     CC_UNUSED bool ok = true;
-    if (argc == 1) {
-        MapEleConfigArray* arg0 = new MapEleConfigArray();
-        ok &= seval_to_mapeleConfigArray(args[0], arg0);
-        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addMapEleConfig : Error processing arguments");
+    if (argc == 3) {
+        int arg0 = 0;
+        ok &= seval_to_int32(args[0], (int32_t*)&arg0);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addMapEleConfig : Error processing arguments 0");
 
-        cobj->addMapEleCofig(arg0);
+        int arg1 = 0;
+        ok &= seval_to_int32(args[1], (int32_t*)&arg1);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addMapEleConfig : Error processing arguments 1");
+
+        MapEleConfig* arg2 = new MapEleConfig();
+        ok &= seval_to_mapeleConfig(args[2], arg2);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addMapEleConfig : Error processing arguments 2");
+
+        cobj->addMapEleCofig(arg0, arg1, arg2);
         return true;
     }
     SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 1);
