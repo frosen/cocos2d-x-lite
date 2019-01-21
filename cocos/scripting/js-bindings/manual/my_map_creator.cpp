@@ -242,6 +242,10 @@ MapData::~MapData() {
 
 // ---------------
 
+#define HOLE_ID_BEGIN (10000)
+#define FI_EDGE_ID_BEGIN (1000)
+#define RA_EDGE_ID_BEGIN (2000)
+
 static MapCreator *s_MapCreator = nullptr;
 
 MapCreator::MapCreator():
@@ -317,8 +321,6 @@ void MapCreator::threadLoop() {
 
         log("begin to create map");
 
-
-
         digHole();
 
         // 结束
@@ -330,96 +332,129 @@ void MapCreator::threadLoop() {
     }
 }
 
+// 镶边 以让所有的坑不紧贴
+static void putBorder(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
+    int WMax = (int)data[0].size();
+    int HMax = (int)data.size();
+    for (int i = 0; i < edgeW; i++) {
+        int curX = beginX + i;
+        if (curX < 0) continue;
+        if (curX >= WMax) break;
+        for (int j = 0; j < edgeH; j++) {
+            int curY = beginY + j;
+            if (curY < 0) continue;
+            if (curY >= HMax) break;
+            if (data[curY][curX] == 0) {
+                data[curY][curX] = key;
+            }
+        }
+    }
+}
+
 void MapCreator::digHole() {
     // 计算hole应该生成的数量
     int blockW = (int)_mapBase->ra[0].size();
     int blockH = (int)_mapBase->ra.size();
     int blockMax = blockW * blockH;
 
-    float holeRatio = 0.5; //llytodo 要从js传入
+    float holeRatio = 0.3; //llytodo 要从js传入
     int holeBlockSize = (int)(blockMax * holeRatio);
 
     // 初始化一个矩阵，记录已经使用了的block，未使用为0，使用了为1
-    std::vector<std::vector<int>> holeMap(_mapBase->ra);
-    int creatingDir = -1;
-    int holeIndex = 0;
+    std::vector<std::vector<int>> holeTMap(_mapBase->ra);
+
+    // 把固定块镶边
+    int fiIdIndex = 0;
+    for (FiTemp* fi : _mapBase->fis) {
+        putBorder(holeTMap, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + fiIdIndex);
+        fiIdIndex++;
+    }
 
     // 开始挖坑
+    int creatingDir = -1; // 挖坑方向
+    int holeIndex = 0;
+
     while (true) {
+        // 反转挖坑方向，为了让效果更平均，所以从不同的方向挖倔
         creatingDir *= -1;
 
-        int x = getRandom(0, blockW - 1);
-        int y = getRandom(0, blockH - 1);
+        // 随机获取一个位置
+        int tx = getRandom(0, blockW - 1);
+        int ty = getRandom(0, blockH - 1);
+        int value = holeTMap[ty][tx];
 
-        int value = holeMap[y][x];
-        if (value == 0) {
-            // 获得随机宽高最大值 更集中在中间的值
-            int holeWMax = getRandom(0, 1) > 0 ? getRandom(1, MAX_R_TW) : getRandom(2, MAX_R_TW - 1);
-            int holeHMax = getRandom(0, 1) > 0 ? getRandom(1, MAX_R_TH) : getRandom(2, MAX_R_TH - 1);
-
-            int curX = x;
-            int curY = y;
-
-            // 获取宽度
-            int holeW = 1;
-            for (; holeW < holeWMax; holeW++) {
-                int subCurX = x + holeW * creatingDir;
-                if (subCurX < 0 || holeMap[y].size() <= subCurX) break;
-
-                int curValue = holeMap[y][subCurX];
-                if (curValue == 0) curX = subCurX;
-                else break;
-            }
-
-            // 获取高度
-            int holeH = 1;
-            for (; holeH < holeHMax; holeH++) {
-                int subCurY = y + holeH * creatingDir;
-                if (subCurY < 0 || holeMap.size() <= subCurY) break;
-
-                int curValue = holeMap[subCurY][x];
-                if (curValue == 0) curY = subCurY;
-                else break;
-            }
-
-            // 检测另一边是否有阻挡
-            for (int holeW2 = 1; holeW2 < holeW; holeW2++) {
-                int curX2 = x + holeW2 * creatingDir;
-                int curValue = holeMap[curY][curX2];
-                if (curValue == 0) curX = curX2;
-                else {
-                    holeW = holeW2;
-                    break;
-                }
-            }
-
-            for (int holeH2 = 1; holeH2 < holeH; holeH2++) {
-                int curY2 = y + holeH2 * creatingDir;
-                int curValue = holeMap[curY2][curX];
-                if (curValue == 0) curY = curY2;
-                else {
-                    holeH = holeH2;
-                    break;
-                }
-            }
-
-            // 记录新hole
-            int beginX = creatingDir > 0 ? x : curX;
-            int beginY = creatingDir > 0 ? y : curY;
-            for (int i = 0; i < holeW; i++) {
-                for (int j = 0; j < holeH; j++) {
-                    holeMap[beginY + j][beginX + i] = 1000 + holeIndex;
-                }
-            }
-            holeIndex++;
-
-            // 检测是否完成
-            holeBlockSize -= (holeW * holeH);
-            if (holeBlockSize <= 0) break;
-
-        } else {
-
+        if (value != 0) { // 如果所取位置已经使用过，则获取另一个位置，但保证尽量在有限的随机次数内完成
+            log("has used at %d %d, value: %d", tx, ty, value);
+            continue;
         }
+
+        // 获得随机宽高最大值 更集中在中间的值
+        int holeTWMax = getRandom(0, 1) > 0 ? getRandom(2, MAX_R_TW) : getRandom(3, MAX_R_TW - 1);
+        int holeTHMax = holeTWMax;
+
+        int curTX = tx;
+        int curTY = ty;
+
+        // 获取宽度
+        int holeTW = 1;
+        for (; holeTW < holeTWMax; holeTW++) {
+            int subCurX = tx + holeTW * creatingDir;
+            if (subCurX < 0 || holeTMap[ty].size() <= subCurX) break;
+
+            int curValue = holeTMap[ty][subCurX];
+            if (curValue == 0) curTX = subCurX;
+            else break;
+        }
+
+        // 获取高度
+        int holeTH = 1;
+        for (; holeTH < holeTHMax; holeTH++) {
+            int subCurY = ty + holeTH * creatingDir;
+            if (subCurY < 0 || holeTMap.size() <= subCurY) break;
+
+            int curValue = holeTMap[subCurY][tx];
+            if (curValue == 0) curTY = subCurY;
+            else break;
+        }
+
+        // 检测另一边是否有阻挡
+        for (int holeW2 = 1; holeW2 < holeTW; holeW2++) {
+            int curX2 = tx + holeW2 * creatingDir;
+            int curValue = holeTMap[curTY][curX2];
+            if (curValue == 0) curTX = curX2;
+            else {
+                holeTW = holeW2;
+                break;
+            }
+        }
+
+        for (int holeH2 = 1; holeH2 < holeTH; holeH2++) {
+            int curY2 = ty + holeH2 * creatingDir;
+            int curValue = holeTMap[curY2][curTX];
+            if (curValue == 0) curTY = curY2;
+            else {
+                holeTH = holeH2;
+                break;
+            }
+        }
+
+        // 记录新hole
+        int beginX = creatingDir > 0 ? tx : curTX;
+        int beginY = creatingDir > 0 ? ty : curTY;
+        for (int i = 0; i < holeTW; i++) {
+            for (int j = 0; j < holeTH; j++) {
+                holeTMap[beginY + j][beginX + i] = HOLE_ID_BEGIN + holeIndex;
+            }
+        }
+
+        // 镶边
+        putBorder(holeTMap, beginX - 1, beginY - 1, holeTW + 2, holeTH + 2, RA_EDGE_ID_BEGIN + holeIndex);
+
+        // 检测是否完成
+        holeBlockSize -= (holeTW * holeTH);
+        if (holeBlockSize <= 0) break;
+
+        holeIndex++;
     }
 }
 
