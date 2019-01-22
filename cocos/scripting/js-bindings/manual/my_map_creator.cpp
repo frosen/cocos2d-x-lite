@@ -388,9 +388,9 @@ void MapCreator::digHole() {
             continue;
         }
 
-        // 获得随机宽高最大值 更集中在中间的值
-        int holeTWMax = getRandom(0, 1) > 0 ? getRandom(2, MAX_R_TW) : getRandom(3, MAX_R_TW - 1);
-        int holeTHMax = holeTWMax;
+        // 获得随机宽高最大值
+        int holeTWMax = getRandom(3, MAX_R_TW);
+        int holeTHMax = getRandom(3, MAX_R_TW);
 
         int curTX = tx;
         int curTY = ty;
@@ -438,6 +438,39 @@ void MapCreator::digHole() {
             }
         }
 
+        // 尽量范围不小于3
+        if (holeTW < 3) {
+            while (true) {
+                bool canExtand = true;
+                for (int i = 0; i < holeTH; i++) {
+                    if (holeTMap[ty + i][tx - creatingDir] != 0) {
+                        canExtand = false;
+                        break;
+                    }
+                }
+                if (!canExtand) break;
+                tx -= creatingDir;
+                holeTW++;
+                if (holeTW >= 3) break;
+            }
+        }
+
+        if (holeTH < 3) {
+            while (true) {
+                bool canExtand = true;
+                for (int i = 0; i < holeTW; i++) {
+                    if (holeTMap[ty - creatingDir][tx + i] != 0) {
+                        canExtand = false;
+                        break;
+                    }
+                }
+                if (!canExtand) break;
+                ty -= creatingDir;
+                holeTH++;
+                if (holeTH >= 3) break;
+            }
+        }
+
         // 记录新hole
         int beginX = creatingDir > 0 ? tx : curTX;
         int beginY = creatingDir > 0 ? ty : curTY;
@@ -456,6 +489,8 @@ void MapCreator::digHole() {
 
         holeIndex++;
     }
+
+    printVecVec(holeTMap);
 }
 
 int MapCreator::getRandom(int from, int to) {
