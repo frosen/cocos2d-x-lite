@@ -27,7 +27,7 @@ static void printVecVec(std::vector<std::vector<int>> &vecvec) {
     for (int i = 0; i < vecvec.size(); i++) {
         std::vector<int> vec = vecvec[i];
         for (int j = 0; j < vec.size(); j++) {
-            printf("%04d, ", vec[j]);
+            printf("%05d, ", vec[j]);
         }
         printf("\n");
     }
@@ -35,12 +35,6 @@ static void printVecVec(std::vector<std::vector<int>> &vecvec) {
 }
 
 MY_SPACE_BEGIN
-
-// 生成的临时数据 -----------------------------------------------------------
-
-class HoleData{
-
-};
 
 // 从js层获得的数据 -----------------------------------------------------------
 
@@ -150,6 +144,36 @@ public:
     std::vector<int> groundInfos; // 地面信息（***每3个int一组，分别是x，y，type）
 };
 
+// 临时数据 ------------------------------------------------------------------
+
+class HoleData{
+public:
+    HoleData();
+    virtual ~HoleData();
+
+    HoleData(int itX, int itY, int itW, int itH, int itype, int iindex);
+
+    int tX;
+    int tY;
+    int tW;
+    int tH;
+
+    int type; // 1 fixed 2 ra
+    int index;
+};
+
+class MapTmpData {
+public:
+    MapTmpData();
+    virtual ~MapTmpData();
+
+    int blockW;
+    int blockH;
+
+    std::vector<std::vector<int>> holeTMap;
+    std::vector<HoleData*> holeVec;
+};
+
 // 地图生成器 ----------------------------------------------------------------
 
 #define MAX_R_TW (6)
@@ -174,7 +198,9 @@ public:
 protected:
     void init();
     void threadLoop();
-    void digHole();
+
+    void initTmpData(MapTmpData* tmpData);
+    void digHole(MapTmpData* tmpData);
 
     int getRandom(int from, int to);
     void eachMapBlock(std::vector<std::vector<int>> &vecvec, const std::function<void(int x, int y, int value)>& callback);
@@ -242,7 +268,29 @@ MapData::~MapData() {
 
 // ---------------
 
-#define HOLE_ID_BEGIN (10000)
+HoleData::HoleData() {
+}
+
+HoleData::~HoleData() {
+}
+
+HoleData::HoleData(int itX, int itY, int itW, int itH, int itype, int iindex):
+tX(itX), tY(itY), tW(itW), tH(itH), type(itype), index(iindex) {
+}
+
+MapTmpData::MapTmpData() {
+}
+
+MapTmpData::~MapTmpData() {
+    for (HoleData* hole: holeVec) {
+        delete hole;
+    }
+}
+
+// ---------------
+
+#define FI_HOLE_ID_BEGIN (10000)
+#define RA_HOLE_ID_BEGIN (20000)
 #define FI_EDGE_ID_BEGIN (1000)
 #define RA_EDGE_ID_BEGIN (2000)
 
@@ -321,7 +369,10 @@ void MapCreator::threadLoop() {
 
         log("begin to create map");
 
-        digHole();
+        MapTmpData* tmpData = new MapTmpData();
+
+        initTmpData(tmpData);
+        digHole(tmpData);
 
         // 结束
         auto sch = cocos2d::Director::getInstance()->getScheduler();
@@ -329,11 +380,33 @@ void MapCreator::threadLoop() {
             _creating = false;
 //            _callback(_mapData);
         });
+
+        delete tmpData;
     }
 }
 
-// 镶边 以让所有的坑不紧贴
-static void putBorder(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
+void MapCreator::initTmpData(MapTmpData* tmpData) {
+    tmpData->blockW = (int)_mapBase->ra[0].size();
+    tmpData->blockH = (int)_mapBase->ra.size();
+
+    // 初始化一个矩阵，记录已经使用了的block，未使用为0，使用了为1
+    std::vector<std::vector<int>> copyRa(_mapBase->ra);
+    tmpData->holeTMap = std::move(copyRa);
+}
+
+// 在地图上填数据
+static void setMap(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
+    for (int i = 0; i < edgeW; i++) {
+        int curX = beginX + i;
+        for (int j = 0; j < edgeH; j++) {
+            int curY = beginY + j;
+            data[curY][curX] = key;
+        }
+    }
+}
+
+// 把地图空的地方填上数据
+static void setBlankMap(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
     int WMax = (int)data[0].size();
     int HMax = (int)data.size();
     for (int i = 0; i < edgeW; i++) {
@@ -351,28 +424,27 @@ static void putBorder(std::vector<std::vector<int>> &data, int beginX, int begin
     }
 }
 
-void MapCreator::digHole() {
-    // 计算hole应该生成的数量
-    int blockW = (int)_mapBase->ra[0].size();
-    int blockH = (int)_mapBase->ra.size();
-    int blockMax = blockW * blockH;
+void MapCreator::digHole(MapTmpData* tmpData) {
+    int blockW = tmpData->blockW;
+    int blockH = tmpData->blockH;
+    auto holeTMap = tmpData->holeTMap;
 
+    int blockMax = tmpData->blockW * tmpData->blockH;
     float holeRatio = 0.3; //llytodo 要从js传入
-    int holeBlockSize = (int)(blockMax * holeRatio);
+    int holeBlockSize = (int)((float)blockMax * holeRatio);
 
-    // 初始化一个矩阵，记录已经使用了的block，未使用为0，使用了为1
-    std::vector<std::vector<int>> holeTMap(_mapBase->ra);
+    int holeIndex = 0;
 
-    // 把固定块镶边
-    int fiIdIndex = 0;
+    // 处理固定块 并把固定块镶边
     for (FiTemp* fi : _mapBase->fis) {
-        putBorder(holeTMap, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + fiIdIndex);
-        fiIdIndex++;
+        setMap(holeTMap, fi->tX, fi->tY, fi->tW, fi->tH, FI_HOLE_ID_BEGIN + holeIndex);
+        setBlankMap(holeTMap, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + holeIndex); // 镶边
+        tmpData->holeVec.push_back(new HoleData(fi->tX, fi->tY, fi->tW, fi->tH, 1, holeIndex));
+        holeIndex++;
     }
 
     // 开始挖坑
     int creatingDir = -1; // 挖坑方向
-    int holeIndex = 0;
 
     while (true) {
         // 反转挖坑方向，为了让效果更平均，所以从不同的方向挖倔
@@ -384,8 +456,26 @@ void MapCreator::digHole() {
         int value = holeTMap[ty][tx];
 
         if (value != 0) { // 如果所取位置已经使用过，则获取另一个位置，但保证尽量在有限的随机次数内完成
-            log("has used at %d %d, value: %d", tx, ty, value);
-            continue;
+            tx = blockW - 1 - tx; // 从对称位置开始
+            ty = blockH - 1 - ty;
+            while (true) {
+                tx += creatingDir;
+                if (creatingDir > 0) {
+                    if (tx >= blockW) {
+                        tx = 0;
+                        ty += creatingDir;
+                        if (ty >= blockH) continue;
+                    }
+                } else {
+                    if (tx < 0) {
+                        tx = blockW - 1;
+                        ty += creatingDir;
+                        if (ty < 0) continue;
+                    }
+                }
+                value = holeTMap[ty][tx];
+                if (value == 0) break;
+            }
         }
 
         // 获得随机宽高最大值
@@ -474,14 +564,9 @@ void MapCreator::digHole() {
         // 记录新hole
         int beginX = creatingDir > 0 ? tx : curTX;
         int beginY = creatingDir > 0 ? ty : curTY;
-        for (int i = 0; i < holeTW; i++) {
-            for (int j = 0; j < holeTH; j++) {
-                holeTMap[beginY + j][beginX + i] = HOLE_ID_BEGIN + holeIndex;
-            }
-        }
-
-        // 镶边
-        putBorder(holeTMap, beginX - 1, beginY - 1, holeTW + 2, holeTH + 2, RA_EDGE_ID_BEGIN + holeIndex);
+        setMap(holeTMap, beginX, beginY, holeTW, holeTH, RA_HOLE_ID_BEGIN + holeIndex);
+        setBlankMap(holeTMap, beginX - 1, beginY - 1, holeTW + 2, holeTH + 2, RA_EDGE_ID_BEGIN + holeIndex); // 镶边
+        tmpData->holeVec.push_back(new HoleData(beginX, beginY, holeTW, holeTH, 2, holeIndex));
 
         // 检测是否完成
         holeBlockSize -= (holeTW * holeTH);
