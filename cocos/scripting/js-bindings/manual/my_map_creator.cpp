@@ -146,6 +146,35 @@ public:
 
 // 临时数据 ------------------------------------------------------------------
 
+// 门方向索引，可以有多个方向所以用二进制
+static const int DOOR_UP = 1 << 0;
+static const int DOOR_DOWN = 1 << 1;
+static const int DOOR_LEFT = 1 << 2;
+static const int DOOR_RIGHT = 1 << 3;
+
+// 方向
+enum class HoleDir {
+    lef_top,
+    lef_mid,
+    lef_bot,
+    mid_top,
+    mid_bot,
+    rig_top,
+    rig_mid,
+    rig_bot,
+};
+
+// 标记其他hole的位置关系
+class HoleRelation {
+public:
+    HoleRelation();
+    virtual ~HoleRelation();
+
+    HoleDir dir;
+    float distance;
+    int holeIndex;
+};
+
 class HoleData{
 public:
     HoleData();
@@ -160,6 +189,10 @@ public:
 
     int type; // 1 fixed 2 ra
     int index;
+
+    int doorDir;
+
+    std::vector<HoleRelation*> relations;
 };
 
 class MapTmpData {
@@ -179,6 +212,11 @@ public:
 #define MAX_R_TW (6)
 #define MAX_R_TH (6)
 #define MAX_DOOR_TYPE (8)
+
+#define FI_HOLE_ID_BEGIN (10000)
+#define RA_HOLE_ID_BEGIN (20000)
+#define FI_EDGE_ID_BEGIN (1000)
+#define RA_EDGE_ID_BEGIN (2000)
 
 class MapCreator {
 public:
@@ -201,9 +239,9 @@ protected:
 
     void initTmpData(MapTmpData* tmpData);
     void digHole(MapTmpData* tmpData);
+    void designatedDoorDirForHole(MapTmpData* tmpData);
 
     int getRandom(int from, int to);
-    void eachMapBlock(std::vector<std::vector<int>> &vecvec, const std::function<void(int x, int y, int value)>& callback);
 private:
     bool _creating;
 
@@ -268,14 +306,26 @@ MapData::~MapData() {
 
 // ---------------
 
+HoleRelation::HoleRelation() {
+}
+
+HoleRelation::~HoleRelation() {
+}
+
+// ---------------
+
 HoleData::HoleData() {
 }
 
 HoleData::~HoleData() {
+    for (HoleRelation* r : relations) {
+        delete r;
+    }
 }
 
 HoleData::HoleData(int itX, int itY, int itW, int itH, int itype, int iindex):
 tX(itX), tY(itY), tW(itW), tH(itH), type(itype), index(iindex) {
+    doorDir = 0;
 }
 
 MapTmpData::MapTmpData() {
@@ -288,11 +338,6 @@ MapTmpData::~MapTmpData() {
 }
 
 // ---------------
-
-#define FI_HOLE_ID_BEGIN (10000)
-#define RA_HOLE_ID_BEGIN (20000)
-#define FI_EDGE_ID_BEGIN (1000)
-#define RA_EDGE_ID_BEGIN (2000)
 
 static MapCreator *s_MapCreator = nullptr;
 
@@ -373,6 +418,7 @@ void MapCreator::threadLoop() {
 
         initTmpData(tmpData);
         digHole(tmpData);
+        designatedDoorDirForHole(tmpData);
 
         // 结束
         auto sch = cocos2d::Director::getInstance()->getScheduler();
@@ -394,7 +440,7 @@ void MapCreator::initTmpData(MapTmpData* tmpData) {
     tmpData->holeTMap = std::move(copyRa);
 }
 
-// 在地图上填数据
+// 在地图上填数据 （无边缘检测）
 static void setMap(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
     for (int i = 0; i < edgeW; i++) {
         int curX = beginX + i;
@@ -405,7 +451,7 @@ static void setMap(std::vector<std::vector<int>> &data, int beginX, int beginY, 
     }
 }
 
-// 把地图空的地方填上数据
+// 把地图空的地方填上数据 （带边缘检测）
 static void setBlankMap(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
     int WMax = (int)data[0].size();
     int HMax = (int)data.size();
@@ -439,7 +485,13 @@ void MapCreator::digHole(MapTmpData* tmpData) {
     for (FiTemp* fi : _mapBase->fis) {
         setMap(holeTMap, fi->tX, fi->tY, fi->tW, fi->tH, FI_HOLE_ID_BEGIN + holeIndex);
         setBlankMap(holeTMap, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + holeIndex); // 镶边
-        tmpData->holeVec.push_back(new HoleData(fi->tX, fi->tY, fi->tW, fi->tH, 1, holeIndex));
+
+        auto holeData = new HoleData(fi->tX, fi->tY, fi->tW, fi->tH, 1, holeIndex);
+        if (fi->door[0].size() > 0) holeData->doorDir |= DOOR_UP;
+        if (fi->door[1].size() > 0) holeData->doorDir |= DOOR_DOWN;
+        if (fi->door[2].size() > 0) holeData->doorDir |= DOOR_LEFT;
+        if (fi->door[3].size() > 0) holeData->doorDir |= DOOR_RIGHT;
+        tmpData->holeVec.push_back(holeData);
         holeIndex++;
     }
 
@@ -578,17 +630,98 @@ void MapCreator::digHole(MapTmpData* tmpData) {
     printVecVec(holeTMap);
 }
 
-int MapCreator::getRandom(int from, int to) {
-    return (rand() % (to - from + 1)) + from;
-}
+void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
+    for (HoleData* hole : tmpData->holeVec) {
+        float halfTW = (float)hole->tW / 2;
+        float halfTH = (float)hole->tH / 2;
+        float centerTX = (float)hole->tX + halfTW;
+        float centerTY = (float)hole->tY + halfTH;
 
-void MapCreator::eachMapBlock(std::vector<std::vector<int>> &vecvec, const std::function<void(int x, int y, int value)>& callback) {
-    for (int i = 0; i < vecvec.size(); i++) {
-        std::vector<int> vec = vecvec[i];
-        for (int j = 0; j < vec.size(); j++) {
-            callback(j, i, vec[j]);
+        int anoIndex = -1;
+        for (HoleData* anotherHole : tmpData->holeVec) {
+            anoIndex++;
+            if (hole == anotherHole) continue;
+
+            float anoHalfTW = (float)anotherHole->tW / 2;
+            float anoHalfTH = (float)anotherHole->tH / 2;
+            float anoCenterTX = (float)anotherHole->tX + anoHalfTW;
+            float anoCenterTY = (float)anotherHole->tY + anoHalfTH;
+
+            // 方向和距离
+            HoleDir holeDir;
+            float distance;
+            if (centerTX + halfTW < anoCenterTX - anoHalfTW) {
+                float wDis = (anoCenterTX - anoHalfTW) - (centerTX + halfTW);
+                if (centerTY + halfTH < anoCenterTY - anoHalfTH) {
+                    holeDir = HoleDir::rig_bot;
+                    distance = (anoCenterTY - anoHalfTH) - (centerTY + halfTH) + wDis;
+                } else if (centerTY - halfTH > anoCenterTY + anoHalfTH) {
+                    holeDir = HoleDir::rig_top;
+                    distance = (centerTY - halfTH) - (anoCenterTY + anoHalfTH) + wDis;
+                } else {
+                    holeDir = HoleDir::rig_mid;
+                    distance = wDis;
+                }
+            } else if (centerTX - halfTW > anoCenterTX + anoHalfTW) {
+                float wDis = (centerTX - halfTW) - (anoCenterTX + anoHalfTW);
+                if (centerTY + halfTH < anoCenterTY - anoHalfTH) {
+                    holeDir = HoleDir::lef_bot;
+                    distance = (anoCenterTY - anoHalfTH) - (centerTY + halfTH) + wDis;
+                } else if (centerTY - halfTH > anoCenterTY + anoHalfTH) {
+                    holeDir = HoleDir::lef_top;
+                    distance = (centerTY - halfTH) - (anoCenterTY + anoHalfTH) + wDis;
+                }else {
+                    holeDir = HoleDir::lef_mid;
+                    distance = wDis;
+                }
+            } else {
+                if (centerTY < anoCenterTY) {
+                    holeDir = HoleDir::mid_bot;
+                    distance = (anoCenterTY - anoHalfTH) - (centerTY + halfTH);
+                } else {
+                    holeDir = HoleDir::mid_top;
+                    distance = (centerTY - halfTH) - (anoCenterTY + anoHalfTH);
+                }
+            }
+
+            // 排序
+            HoleRelation* relation = new HoleRelation();
+            relation->dir = holeDir;
+            relation->distance = distance;
+            relation->holeIndex = anoIndex;
+
+            int relationIndex = 0;
+            while (true) {
+                if (relationIndex == hole->relations.size()) {
+                    hole->relations.push_back(relation);
+                    break;
+                }
+
+                HoleRelation* anoRelation = hole->relations[relationIndex];
+
+                bool sameDir = (anoRelation->dir == relation->dir);
+                if (relation->distance < anoRelation->distance) {
+                    HoleRelation* tmpRelation = relation;
+                    relation = anoRelation;
+                    hole->relations[relationIndex] = tmpRelation;
+                }
+
+                if (sameDir) { // 不能有同方向的关系，如果方向相同则结束
+                    delete relation;
+                    break;
+                }
+
+                relationIndex++;
+            }
         }
     }
+
+    log(">>>>");
+
+}
+
+int MapCreator::getRandom(int from, int to) {
+    return (rand() % (to - from + 1)) + from;
 }
 
 MY_SPACE_END
