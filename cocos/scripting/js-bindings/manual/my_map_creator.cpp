@@ -75,6 +75,19 @@ public:
     }
 };
 
+#define MAX_R_TW (6)
+#define MAX_R_TH (6)
+#define MAX_DOOR_TYPE (8)
+
+// 元素清单，记录了不同宽高，不同门方向可以使用的元素
+class MapEleList {
+public:
+    MapEleList();
+    virtual ~MapEleList();
+
+    std::vector<int> list[MAX_R_TW][MAX_R_TH][MAX_DOOR_TYPE]; // 对应不同w，h以及门方向的随机区块使用的配置，最大宽高是固定的
+};
+
 // 模板中的固定块
 class FiTemp {
 public:
@@ -164,6 +177,15 @@ enum class HoleDir {
     rig_bot,
 };
 
+// 连接hole的通道
+class PipeData {
+public:
+    PipeData();
+    virtual ~PipeData();
+
+    int holeIndex[2];
+};
+
 // 标记其他hole的位置关系
 class HoleRelation {
 public:
@@ -172,7 +194,11 @@ public:
 
     HoleDir dir;
     float distance;
-    int holeIndex;
+
+    int myHoleIndex;
+    int anoHoleIndex;
+
+    int pipeIndex;
 };
 
 class HoleData{
@@ -205,13 +231,10 @@ public:
 
     std::vector<std::vector<int>> holeTMap;
     std::vector<HoleData*> holeVec;
+    std::vector<PipeData*> pipeVec;
 };
 
 // 地图生成器 ----------------------------------------------------------------
-
-#define MAX_R_TW (6)
-#define MAX_R_TH (6)
-#define MAX_DOOR_TYPE (8)
 
 #define FI_HOLE_ID_BEGIN (10000)
 #define RA_HOLE_ID_BEGIN (20000)
@@ -228,10 +251,10 @@ public:
     // 载入区块元素
     void addMapEleBase(const MapEleBase* mapEleBase);
     void addMapEle(const MapEle* mapEle);
-    void addMapEleIndex(const int tW, const int tH, const int doorType, const int eleIndex);
+    void addMapEleIndex(const int sceneKey, const int tW, const int tH, const int doorType, const int eleIndex);
 
     // 读取模板，生成地图，然后从回调传出
-    void createMap(const MapTemp* mapBase, const std::function<void(MapData*)>& callback);
+    void createMap(const int sceneKey, const MapTemp* mapBase, const std::function<void(MapData*)>& callback);
 
 protected:
     void init();
@@ -252,8 +275,9 @@ private:
     // 输入数据
     std::vector<MapEleBase*> _mapEleBaseVec;
     std::vector<MapEle*> _mapEleVec;
-    std::vector<int> _mapEleIndexs[MAX_R_TW][MAX_R_TH][MAX_DOOR_TYPE]; // 对应不同w，h以及门方向的随机区块使用的配置，最大宽高是固定的
+    std::map<int, MapEleList*> _mapEleListMap; // 不同场景Key（场景key = 场景id * 10 + 小场景id）对应的元素清单
 
+    int _curSceneKey;
     MapTemp* _mapBase;
     std::function<void(MapData*)> _callback;
 
@@ -275,6 +299,14 @@ MapEle::MapEle() {
 }
 
 MapEle::~MapEle() {
+}
+
+// ---------------
+
+MapEleList::MapEleList() {
+}
+
+MapEleList::~MapEleList() {
 }
 
 // ---------------
@@ -302,6 +334,14 @@ MapData::MapData() {
 }
 
 MapData::~MapData() {
+}
+
+// ---------------
+
+PipeData::PipeData() {
+}
+
+PipeData::~PipeData() {
 }
 
 // ---------------
@@ -335,6 +375,9 @@ MapTmpData::~MapTmpData() {
     for (HoleData* hole: holeVec) {
         delete hole;
     }
+    for (PipeData* pipe: pipeVec) {
+        delete pipe;
+    }
 }
 
 // ---------------
@@ -357,6 +400,12 @@ MapCreator::~MapCreator() {
         delete ele;
     }
 
+    std::map<int, MapEleList*>::iterator it;
+    for(it = _mapEleListMap.begin(); it != _mapEleListMap.end();) {
+        delete it->second;
+        _mapEleListMap.erase(it++);
+    }
+
     if (_mapBase) delete _mapBase;
     if (_mapData) delete _mapData;
 }
@@ -377,11 +426,17 @@ void MapCreator::addMapEle(const MapEle* mapEle) {
     _mapEleVec.push_back(const_cast<MapEle*>(mapEle));
 }
 
-void MapCreator::addMapEleIndex(const int tW, const int tH, const int doorType, const int eleIndex) {
-    _mapEleIndexs[tW][tH][doorType].push_back(eleIndex);
+void MapCreator::addMapEleIndex(const int sceneKey, const int tW, const int tH, const int doorType, const int eleIndex) {
+    if (_mapEleListMap.find(sceneKey) == _mapEleListMap.end()) {
+        MapEleList* list = new MapEleList();
+        list->list[tW][tH][doorType].push_back(eleIndex);
+        _mapEleListMap[sceneKey] = list;
+    } else {
+        _mapEleListMap[sceneKey]->list[tW][tH][doorType].push_back(eleIndex);
+    }
 }
 
-void MapCreator::createMap(const MapTemp* mapBase, const std::function<void(MapData*)>& callback) {
+void MapCreator::createMap(const int sceneKey, const MapTemp* mapBase, const std::function<void(MapData*)>& callback) {
     if (_creating) return;
     _creating = true;
 
@@ -394,6 +449,7 @@ void MapCreator::createMap(const MapTemp* mapBase, const std::function<void(MapD
         _mapData = nullptr;
     }
 
+    _curSceneKey = sceneKey;
     _mapBase = const_cast<MapTemp*>(mapBase);
     _callback = callback;
 
@@ -631,7 +687,10 @@ void MapCreator::digHole(MapTmpData* tmpData) {
 }
 
 void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
+    int myIndex = -1;
     for (HoleData* hole : tmpData->holeVec) {
+        myIndex++;
+
         float halfTW = (float)hole->tW / 2;
         float halfTH = (float)hole->tH / 2;
         float centerTX = (float)hole->tX + halfTW;
@@ -688,7 +747,8 @@ void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
             HoleRelation* relation = new HoleRelation();
             relation->dir = holeDir;
             relation->distance = distance;
-            relation->holeIndex = anoIndex;
+            relation->myHoleIndex = myIndex;
+            relation->anoHoleIndex = anoIndex;
 
             int relationIndex = 0;
             while (true) {
@@ -1172,7 +1232,7 @@ static bool jsb_my_MapCreator_addMapEleIndex(se::State& s) {
     const auto& args = s.args();
     size_t argc = args.size();
     CC_UNUSED bool ok = true;
-    if (argc == 3) {
+    if (argc == 5) {
         int arg0 = 0;
         ok &= seval_to_int32(args[0], (int32_t*)&arg0);
         SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addMapEleIndex : Error processing arguments 0");
@@ -1189,7 +1249,11 @@ static bool jsb_my_MapCreator_addMapEleIndex(se::State& s) {
         ok &= seval_to_int32(args[3], (int32_t*)&arg3);
         SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addMapEleIndex : Error processing arguments 3");
 
-        cobj->addMapEleIndex(arg0, arg1, arg2, arg3);
+        int arg4 = 0;
+        ok &= seval_to_int32(args[4], (int32_t*)&arg4);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addMapEleIndex : Error processing arguments 4");
+
+        cobj->addMapEleIndex(arg0, arg1, arg2, arg3, arg4);
         return true;
     }
     SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 1);
@@ -1204,16 +1268,21 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
     const auto& args = s.args();
     size_t argc = args.size();
     CC_UNUSED bool ok = true;
-    if (argc == 2) {
-        MapTemp* arg0 = new MapTemp();
-        std::function<void(MapData*)> arg1 = nullptr;
+    if (argc == 3) {
+        int arg0 = 0;
+        MapTemp* arg1 = new MapTemp();
+        std::function<void(MapData*)> arg2 = nullptr;
 
-        ok &= seval_to_maptemp(args[0], arg0);
+        ok &= seval_to_int32(args[0], (int32_t*)&arg0);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 0");
+
+        ok &= seval_to_maptemp(args[1], arg1);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 1");
 
         do {
-            if (args[1].isObject() && args[1].toObject()->isFunction()) {
+            if (args[2].isObject() && args[2].toObject()->isFunction()) {
                 se::Value jsThis(s.thisObject());
-                se::Value jsFunc(args[1]);
+                se::Value jsFunc(args[2]);
                 jsThis.toObject()->attachObject(jsFunc.toObject());
                 auto lambda = [=](MapData* larg0) -> void {
                     se::ScriptEngine::getInstance()->clearException();
@@ -1231,7 +1300,7 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
                         se::ScriptEngine::getInstance()->clearException();
                     }
                 };
-                arg1 = lambda;
+                arg2 = lambda;
             } else {
                 ok = false;
             }
@@ -1239,7 +1308,7 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
 
         SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments");
 
-        cobj->createMap(arg0, arg1);
+        cobj->createMap(arg0, arg1, arg2);
         return true;
     }
     SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 2);
