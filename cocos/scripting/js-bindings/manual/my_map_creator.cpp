@@ -34,6 +34,26 @@ static void printVecVec(std::vector<std::vector<int>> &vecvec) {
     printf("^^^^^^^^^^^^^^^\n");
 }
 
+static std::vector<std::vector<int>> createVecVec() {
+    std::vector<std::vector<int> > cc;
+    std::vector<int> c[20];
+    c[0] = {    0,     0,     0,     0,     0,     0,  2003, 20003, 20003, 20003, 20003, 20003, 20003,  1000, 10000, 10000};
+    c[1] = { 2002,  2002,  2002,  2002,  2002,     0,  2003, 20003, 20003, 20003, 20003, 20003, 20003,  1000, 10000, 10000};
+    c[2] = {20002, 20002, 20002, 20002,  2002,     0,  2003, 20003, 20003, 20003, 20003, 20003, 20003,  1000,  1000,  1000};
+    c[3] = {20002, 20002, 20002, 20002,  2002,     0,  2003,  2003,  2003,  2003,  2003,  2003,  2003,  2003,     0,     0};
+    c[4] = {20002, 20002, 20002, 20002,  2002,     0,     0,     0,     0,     0,     0,     0,  2004,  2004,  2004,  2004};
+    c[5] = { 1001,  1001,  1001,  2002,  2002,     0,     0,     0,     0,     0,     0,     0,  2004, 20004, 20004, 20004};
+    c[6] = {10001, 10001,  1001,     0,     0,     0,     0,     0,     0,     0,     0,     0,  2004, 20004, 20004, 20004};
+    c[7] = {10001, 10001,  1001,     0,     0,     0,     0,     0,     0,     0,     0,     0,  2004, 20004, 20004, 20004};
+
+    for (auto _c : c) {
+        if (_c.size() == 0) break;
+        cc.push_back(_c);
+    }
+
+    return cc;
+}
+
 MY_SPACE_BEGIN
 
 // 从js层获得的数据 -----------------------------------------------------------
@@ -183,7 +203,7 @@ public:
     PipeData();
     virtual ~PipeData();
 
-    int holeIndex[2];
+    int holeIndexs[2];
 };
 
 // 标记其他hole的位置关系
@@ -203,10 +223,8 @@ public:
 
 class HoleData{
 public:
-    HoleData();
-    virtual ~HoleData();
-
     HoleData(int itX, int itY, int itW, int itH, int itype, int iindex);
+    virtual ~HoleData();
 
     int tX;
     int tY;
@@ -214,7 +232,9 @@ public:
     int tH;
 
     int type; // 1 fixed 2 ra
-    int index;
+    int index; // 在vec中的位置
+
+    bool inCircuit; // 是否在通路中
 
     int doorDir;
 
@@ -262,6 +282,8 @@ protected:
 
     void initTmpData(MapTmpData* tmpData);
     void digHole(MapTmpData* tmpData);
+    void calcHoleRelation(MapTmpData* tmpData);
+    void connectHole(MapTmpData* tmpData);
     void designatedDoorDirForHole(MapTmpData* tmpData);
 
     int getRandom(int from, int to);
@@ -346,7 +368,8 @@ PipeData::~PipeData() {
 
 // ---------------
 
-HoleRelation::HoleRelation() {
+HoleRelation::HoleRelation():
+pipeIndex(-1) {
 }
 
 HoleRelation::~HoleRelation() {
@@ -354,18 +377,15 @@ HoleRelation::~HoleRelation() {
 
 // ---------------
 
-HoleData::HoleData() {
+HoleData::HoleData(int itX, int itY, int itW, int itH, int itype, int iindex):
+inCircuit(false), tX(itX), tY(itY), tW(itW), tH(itH), type(itype), index(iindex) {
+    doorDir = 0;
 }
 
 HoleData::~HoleData() {
     for (HoleRelation* r : relations) {
         delete r;
     }
-}
-
-HoleData::HoleData(int itX, int itY, int itW, int itH, int itype, int iindex):
-tX(itX), tY(itY), tW(itW), tH(itH), type(itype), index(iindex) {
-    doorDir = 0;
 }
 
 MapTmpData::MapTmpData() {
@@ -474,6 +494,8 @@ void MapCreator::threadLoop() {
 
         initTmpData(tmpData);
         digHole(tmpData);
+        calcHoleRelation(tmpData);
+        connectHole(tmpData);
         designatedDoorDirForHole(tmpData);
 
         // 结束
@@ -566,24 +588,33 @@ void MapCreator::digHole(MapTmpData* tmpData) {
         if (value != 0) { // 如果所取位置已经使用过，则获取另一个位置，但保证尽量在有限的随机次数内完成
             tx = blockW - 1 - tx; // 从对称位置开始
             ty = blockH - 1 - ty;
+            bool needContinue = false;
             while (true) {
                 tx += creatingDir;
                 if (creatingDir > 0) {
                     if (tx >= blockW) {
                         tx = 0;
                         ty += creatingDir;
-                        if (ty >= blockH) continue;
+                        if (ty >= blockH) {
+                            needContinue = true;
+                            break;
+                        }
                     }
                 } else {
                     if (tx < 0) {
                         tx = blockW - 1;
                         ty += creatingDir;
-                        if (ty < 0) continue;
+                        if (ty < 0) {
+                            needContinue = true;
+                            break;
+                        }
                     }
                 }
                 value = holeTMap[ty][tx];
                 if (value == 0) break;
             }
+
+            if (needContinue) continue;
         }
 
         // 获得随机宽高最大值
@@ -639,9 +670,11 @@ void MapCreator::digHole(MapTmpData* tmpData) {
         // 尽量范围不小于3
         if (holeTW < 3) {
             while (true) {
+                if (creatingDir > 0 ? tx == 0 : tx == blockW - 1) break;
+
                 bool canExtand = true;
                 for (int i = 0; i < holeTH; i++) {
-                    if (holeTMap[ty + i][tx - creatingDir] != 0) {
+                    if (holeTMap[ty + i * creatingDir][tx - creatingDir] != 0) {
                         canExtand = false;
                         break;
                     }
@@ -655,9 +688,11 @@ void MapCreator::digHole(MapTmpData* tmpData) {
 
         if (holeTH < 3) {
             while (true) {
+                if (creatingDir > 0 ? ty == 0 : ty == blockH - 1) break;
+
                 bool canExtand = true;
                 for (int i = 0; i < holeTW; i++) {
-                    if (holeTMap[ty - creatingDir][tx + i] != 0) {
+                    if (holeTMap[ty - creatingDir][tx + i * creatingDir] != 0) {
                         canExtand = false;
                         break;
                     }
@@ -686,7 +721,8 @@ void MapCreator::digHole(MapTmpData* tmpData) {
     printVecVec(holeTMap);
 }
 
-void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
+// 计算出hole之间的关系
+void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
     int myIndex = -1;
     for (HoleData* hole : tmpData->holeVec) {
         myIndex++;
@@ -709,24 +745,24 @@ void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
             // 方向和距离
             HoleDir holeDir;
             float distance;
-            if (centerTX + halfTW < anoCenterTX - anoHalfTW) {
+            if (centerTX + halfTW <= anoCenterTX - anoHalfTW) {
                 float wDis = (anoCenterTX - anoHalfTW) - (centerTX + halfTW);
-                if (centerTY + halfTH < anoCenterTY - anoHalfTH) {
+                if (centerTY + halfTH <= anoCenterTY - anoHalfTH) {
                     holeDir = HoleDir::rig_bot;
                     distance = (anoCenterTY - anoHalfTH) - (centerTY + halfTH) + wDis;
-                } else if (centerTY - halfTH > anoCenterTY + anoHalfTH) {
+                } else if (centerTY - halfTH >= anoCenterTY + anoHalfTH) {
                     holeDir = HoleDir::rig_top;
                     distance = (centerTY - halfTH) - (anoCenterTY + anoHalfTH) + wDis;
                 } else {
                     holeDir = HoleDir::rig_mid;
                     distance = wDis;
                 }
-            } else if (centerTX - halfTW > anoCenterTX + anoHalfTW) {
+            } else if (centerTX - halfTW >= anoCenterTX + anoHalfTW) {
                 float wDis = (centerTX - halfTW) - (anoCenterTX + anoHalfTW);
-                if (centerTY + halfTH < anoCenterTY - anoHalfTH) {
+                if (centerTY + halfTH <= anoCenterTY - anoHalfTH) {
                     holeDir = HoleDir::lef_bot;
                     distance = (anoCenterTY - anoHalfTH) - (centerTY + halfTH) + wDis;
-                } else if (centerTY - halfTH > anoCenterTY + anoHalfTH) {
+                } else if (centerTY - halfTH >= anoCenterTY + anoHalfTH) {
                     holeDir = HoleDir::lef_top;
                     distance = (centerTY - halfTH) - (anoCenterTY + anoHalfTH) + wDis;
                 }else {
@@ -775,7 +811,61 @@ void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
             }
         }
     }
+}
 
+static void dealRelationPathForConnection(MapTmpData* tmpData, HoleRelation* relation, HoleData* anoHole);
+
+static void dealEachRelationForConnection(MapTmpData* tmpData, HoleData* hole) {
+    for (HoleRelation* relation : hole->relations) {
+        HoleData* anoHole = tmpData->holeVec[relation->anoHoleIndex];
+        if (anoHole->inCircuit) continue;
+        dealRelationPathForConnection(tmpData, relation, anoHole);
+    }
+}
+
+static void dealRelationPathForConnection(MapTmpData* tmpData, HoleRelation* relation, HoleData* anoHole) {
+    anoHole->inCircuit = true;
+    HoleRelation* curRelation = relation;
+
+    // 查看有没有更近的已经在通路的坑
+    int myIndex = relation->myHoleIndex;
+    bool reverse = false; // true的话my和another对调，让pipe的朝向保持一致
+    for (HoleRelation* anoRelation : anoHole->relations) {
+        if (anoRelation->anoHoleIndex == myIndex) break;
+
+        HoleData* anoAnoHole = tmpData->holeVec[anoRelation->anoHoleIndex];
+        if (anoAnoHole->inCircuit) {
+            curRelation = anoRelation;
+            reverse = true;
+            break;
+        }
+    }
+
+    PipeData* pipe = new PipeData();
+    if (reverse) {
+        pipe->holeIndexs[0] = curRelation->anoHoleIndex;
+        pipe->holeIndexs[1] = curRelation->myHoleIndex;
+    } else {
+        pipe->holeIndexs[0] = curRelation->myHoleIndex;
+        pipe->holeIndexs[1] = curRelation->anoHoleIndex;
+    }
+
+    tmpData->pipeVec.push_back(pipe);
+    curRelation->pipeIndex = (int)tmpData->pipeVec.size() - 1;
+
+    dealEachRelationForConnection(tmpData, anoHole);
+}
+
+// 根据关系，连接所有的hole，形成通路
+void MapCreator::connectHole(MapTmpData* tmpData) {
+    HoleData* hole = tmpData->holeVec[0];
+    hole->inCircuit = true;
+    dealEachRelationForConnection(tmpData, hole);
+}
+
+void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
+
+    log(">>>>");
     log(">>>>");
 
 }
