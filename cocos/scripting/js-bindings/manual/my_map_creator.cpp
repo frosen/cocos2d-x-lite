@@ -197,6 +197,13 @@ enum class HoleDir {
     rig_bot,
 };
 
+enum class HoleDirOffsetType {
+    none,
+    left_or_up,
+    right_or_down,
+    full,
+};
+
 // 连接hole的通道
 class PipeData {
 public:
@@ -213,6 +220,7 @@ public:
     virtual ~HoleRelation();
 
     HoleDir dir;
+    HoleDirOffsetType offsetType;
     float distance;
 
     int myHoleIndex;
@@ -490,6 +498,18 @@ void MapCreator::threadLoop() {
 
         log("begin to create map");
 
+        for (int i = 0; i < 10; i++) {
+            MapTmpData* tmpData = new MapTmpData();
+
+            initTmpData(tmpData);
+            digHole(tmpData);
+            calcHoleRelation(tmpData);
+            connectHole(tmpData);
+            designatedDoorDirForHole(tmpData);
+
+            delete tmpData;
+        }
+
         MapTmpData* tmpData = new MapTmpData();
 
         initTmpData(tmpData);
@@ -721,6 +741,29 @@ void MapCreator::digHole(MapTmpData* tmpData) {
     printVecVec(holeTMap);
 }
 
+static HoleDirOffsetType calcHoleDirOffsetType(float myPos, float myHalf, float anoPos, float anoHalf) {
+    bool downOrRightOffset = myPos + myHalf < anoPos + anoHalf;
+    bool upOrLeftOffset = myPos - myHalf > anoPos - anoHalf;
+    if (downOrRightOffset && upOrLeftOffset) return HoleDirOffsetType::full;
+    else if (downOrRightOffset) return HoleDirOffsetType::right_or_down;
+    else if (upOrLeftOffset) return HoleDirOffsetType::left_or_up;
+    else return HoleDirOffsetType::none;
+}
+
+#define GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(disName, typeName1, typeName2) \
+disName = thisRelation->distance; \
+switch (thisRelation->offsetType) { \
+    case HoleDirOffsetType::full: typeName1 = true; typeName2 = true; break; \
+    case HoleDirOffsetType::left_or_up: typeName1 = true; break; \
+    case HoleDirOffsetType::right_or_down: typeName2 = true; break; \
+    default: break; \
+}
+
+#define CHECK_DIS_AND_REMOVE(myDis, checkDis) \
+if ((myDis) > (checkDis)) { \
+    hole->relations.erase(hole->relations.begin() + i); i--; continue; \
+} \
+
 // 计算出hole之间的关系
 void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
     int myIndex = -1;
@@ -744,6 +787,7 @@ void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
 
             // 方向和距离
             HoleDir holeDir;
+            HoleDirOffsetType offsetType = HoleDirOffsetType::none;
             float distance;
             if (centerTX + halfTW <= anoCenterTX - anoHalfTW) {
                 float wDis = (anoCenterTX - anoHalfTW) - (centerTX + halfTW);
@@ -756,6 +800,7 @@ void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
                 } else {
                     holeDir = HoleDir::rig_mid;
                     distance = wDis;
+                    offsetType = calcHoleDirOffsetType(centerTY, halfTH, anoCenterTY, anoHalfTH);
                 }
             } else if (centerTX - halfTW >= anoCenterTX + anoHalfTW) {
                 float wDis = (centerTX - halfTW) - (anoCenterTX + anoHalfTW);
@@ -768,48 +813,138 @@ void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
                 }else {
                     holeDir = HoleDir::lef_mid;
                     distance = wDis;
+                    offsetType = calcHoleDirOffsetType(centerTY, halfTH, anoCenterTY, anoHalfTH);
                 }
             } else {
                 if (centerTY < anoCenterTY) {
                     holeDir = HoleDir::mid_bot;
                     distance = (anoCenterTY - anoHalfTH) - (centerTY + halfTH);
+                    offsetType = calcHoleDirOffsetType(centerTX, halfTW, anoCenterTX, anoHalfTW);
                 } else {
                     holeDir = HoleDir::mid_top;
                     distance = (centerTY - halfTH) - (anoCenterTY + anoHalfTH);
+                    offsetType = calcHoleDirOffsetType(centerTX, halfTW, anoCenterTX, anoHalfTW);
                 }
             }
 
             // 排序
             HoleRelation* relation = new HoleRelation();
             relation->dir = holeDir;
+            relation->offsetType = offsetType;
             relation->distance = distance;
             relation->myHoleIndex = myIndex;
             relation->anoHoleIndex = anoIndex;
 
-            int relationIndex = 0;
-            while (true) {
-                if (relationIndex == hole->relations.size()) {
-                    hole->relations.push_back(relation);
+            bool needSort = true;
+            for (int i = 0; i < hole->relations.size(); i++) { // 去掉重复dir的relation
+                HoleRelation* anoRelation = hole->relations[i];
+                if (relation->dir == anoRelation->dir) {
+                    if (relation->distance >= anoRelation->distance) needSort = false;
+                    else {
+                        hole->relations.erase(hole->relations.begin() + i);
+                        delete anoRelation;
+                    }
                     break;
                 }
+            }
 
-                HoleRelation* anoRelation = hole->relations[relationIndex];
+            if (needSort) {
+                int relationIndex = 0;
+                while (true) { // 按照dis从小到大排序
+                    if (relationIndex == hole->relations.size()) {
+                        hole->relations.push_back(relation);
+                        break;
+                    }
 
-                bool sameDir = (anoRelation->dir == relation->dir);
-                if (relation->distance < anoRelation->distance) {
-                    HoleRelation* tmpRelation = relation;
-                    relation = anoRelation;
-                    hole->relations[relationIndex] = tmpRelation;
+                    HoleRelation* anoRelation = hole->relations[relationIndex];
+                    if (relation->distance < anoRelation->distance) {
+                        HoleRelation* tmpRelation = relation;
+                        relation = anoRelation;
+                        hole->relations[relationIndex] = tmpRelation;
+                    }
+
+                    relationIndex++;
                 }
-
-                if (sameDir) { // 不能有同方向的关系，如果方向相同则结束
-                    delete relation;
-                    break;
-                }
-
-                relationIndex++;
             }
         }
+
+        log(">>>>>>>>>>>>> size %lu", hole->relations.size());
+
+        // 根据offset，移除太远的角的关系
+        float leftDis, rightDis, upDis, downDis;
+        bool leftUpOffset = false, leftDownOffset = false, rightUpOffset = false, rightDownOffset = false,
+        topLeftOffset = false, topRightOffset = false, botLeftOffset = false, botRightOffset = false;
+        for (int i = 0; i < hole->relations.size(); i++) {
+            HoleRelation* thisRelation = hole->relations[i];
+            HoleData* anoHole = tmpData->holeVec[thisRelation->anoHoleIndex];
+            log("index: this hole %d, relation %d, another hole %d", myIndex, i, thisRelation->anoHoleIndex);
+            switch (thisRelation->dir) {
+                case HoleDir::lef_mid:
+                    GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(leftDis, leftUpOffset, leftDownOffset);
+                    log("lef mid dis %f", thisRelation->distance);
+                    break;
+                case HoleDir::rig_mid:
+                    GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(rightDis, rightUpOffset, rightDownOffset);
+                    log("rig mid dis %f", thisRelation->distance);
+                    break;
+                case HoleDir::mid_top:
+                    GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(upDis, topLeftOffset, topRightOffset);
+                    log("mid top dis %f", thisRelation->distance);
+                    break;
+                case HoleDir::mid_bot:
+                    GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(downDis, botLeftOffset, botRightOffset);
+                    log("mid bot dis %f", thisRelation->distance);
+                    break;
+
+                case HoleDir::lef_top:
+                    log("lef top");
+                    if (leftUpOffset) {
+                        log("left up offset dis %f, left dis %f", (centerTX - halfTW) - (anoHole->tX + anoHole->tW), leftDis);
+                        CHECK_DIS_AND_REMOVE((centerTX - halfTW) - (anoHole->tX + anoHole->tW), leftDis);
+                    }
+                    if (topLeftOffset) {
+                        log("topLeftOffset dis %f, up dis %f", (centerTY - halfTH) - (anoHole->tY + anoHole->tH), upDis);
+                        CHECK_DIS_AND_REMOVE((centerTY - halfTH) - (anoHole->tY + anoHole->tH), upDis);
+                    }
+                    break;
+                case HoleDir::lef_bot:
+                    log("lef bot");
+                    if (leftDownOffset) {
+                        log("leftDownOffset dis %f, leftDis dis %f", (centerTX - halfTW) - (anoHole->tX + anoHole->tW), leftDis);
+                        CHECK_DIS_AND_REMOVE((centerTX - halfTW) - (anoHole->tX + anoHole->tW), leftDis);
+                    }
+                    if (botLeftOffset) {
+                        log("botLeftOffset dis %f, downDis dis %f", (float)anoHole->tY - (centerTY + halfTH), downDis);
+                        CHECK_DIS_AND_REMOVE((float)anoHole->tY - (centerTY + halfTH), downDis);
+                    }
+                    break;
+                case HoleDir::rig_top:
+                    log("rig top");
+                    if (rightUpOffset) {
+                        log("rightUpOffset dis %f, rightDis dis %f", (float)anoHole->tX - (centerTX + halfTW), rightDis);
+                        CHECK_DIS_AND_REMOVE((float)anoHole->tX - (centerTX + halfTW), rightDis);
+                    }
+                    if (topRightOffset) {
+                        log("topRightOffset dis %f, upDis dis %f", (centerTY - halfTH) - (anoHole->tY + anoHole->tH), upDis);
+                        CHECK_DIS_AND_REMOVE((centerTY - halfTH) - (anoHole->tY + anoHole->tH), upDis);
+                    }
+                    break;
+                case HoleDir::rig_bot:
+                    if (rightDownOffset) {
+                        log("rightDownOffset dis %f, rightDis dis %f", (float)anoHole->tX - (centerTX + halfTW), rightDis);
+                        CHECK_DIS_AND_REMOVE((float)anoHole->tX - (centerTX + halfTW), rightDis);
+                    }
+                    if (botRightOffset) {
+                        log("botRightOffset dis %f, downDis dis %f", (float)anoHole->tY - (centerTY + halfTH), downDis);
+                        CHECK_DIS_AND_REMOVE((float)anoHole->tY - (centerTY + halfTH), downDis);
+                    }
+                    break;
+            }
+        }
+
+        log(">>>>>>>>>>>>> end size %lu", hole->relations.size());
+        log(">");
+        log(">");
     }
 }
 
