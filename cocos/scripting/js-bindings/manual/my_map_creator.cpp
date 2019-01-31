@@ -20,7 +20,7 @@
 
 USING_NS_CC;
 
-// 数据模型 ---------------------------------------------------------------
+// 测试函数 ---------------------------------------------------------------
 
 static void printVecVec(std::vector<std::vector<int>> &vecvec) {
     printf("vvvvvvvvvvvvvvv\n");
@@ -53,6 +53,18 @@ static std::vector<std::vector<int>> createVecVec() {
 
     return cc;
 }
+
+// 获取随机数 -----------------------------------------------------------
+
+static void getReadyForRandom() {
+    srand((int)time(0));
+}
+
+static inline int getRandom(int from, int to) {
+    return (rand() % (to - from + 1)) + from;
+}
+
+// 数据模型 ---------------------------------------------------------------
 
 MY_SPACE_BEGIN
 
@@ -127,6 +139,7 @@ public:
     std::vector<std::vector<int>> te; // 地形
     std::vector<std::vector<int>> co; // 碰撞
     std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向（***每2个int一组，分别是x，y）
+    int substitutes[4]; // 上，下，左，右 如果不能连接，则替代的方向0-3
 
     int getDoorLen(int key) {
         return (int)door[key].size() / 2;
@@ -204,13 +217,24 @@ enum class HoleDirOffsetType {
     full,
 };
 
+class PipeEndPoint {
+public:
+    PipeEndPoint();
+    virtual ~PipeEndPoint();
+
+    int holeIndex;
+    HoleDir dir;
+    int tW;
+    int tY;
+};
+
 // 连接hole的通道
 class PipeData {
 public:
     PipeData();
     virtual ~PipeData();
 
-    int holeIndexs[2];
+    PipeEndPoint* endPoints[2];
 };
 
 // 标记其他hole的位置关系
@@ -229,9 +253,14 @@ public:
     int pipeIndex;
 };
 
+enum class HoleType {
+    fi,
+    ra,
+};
+
 class HoleData{
 public:
-    HoleData(int itX, int itY, int itW, int itH, int itype, int iindex);
+    HoleData(int itX, int itY, int itW, int itH, HoleType itype, int iindex);
     virtual ~HoleData();
 
     int tX;
@@ -239,12 +268,13 @@ public:
     int tW;
     int tH;
 
-    int type; // 1 fixed 2 ra
+    HoleType type;
     int index; // 在vec中的位置
 
     bool inCircuit; // 是否在通路中
 
     int doorDir;
+    std::map<int, int> substitutesMap; // HoleDir: HoleDir
 
     std::vector<HoleRelation*> relations;
 };
@@ -294,7 +324,6 @@ protected:
     void connectHole(MapTmpData* tmpData);
     void designatedDoorDirForHole(MapTmpData* tmpData);
 
-    int getRandom(int from, int to);
 private:
     bool _creating;
 
@@ -368,10 +397,22 @@ MapData::~MapData() {
 
 // ---------------
 
+PipeEndPoint::PipeEndPoint() {
+}
+
+PipeEndPoint::~PipeEndPoint() {
+}
+
+// ---------------
+
 PipeData::PipeData() {
+    endPoints[0] = nullptr;
+    endPoints[1] = nullptr;
 }
 
 PipeData::~PipeData() {
+    if (endPoints[0]) delete endPoints[0];
+    if (endPoints[1]) delete endPoints[1];
 }
 
 // ---------------
@@ -385,9 +426,8 @@ HoleRelation::~HoleRelation() {
 
 // ---------------
 
-HoleData::HoleData(int itX, int itY, int itW, int itH, int itype, int iindex):
-inCircuit(false), tX(itX), tY(itY), tW(itW), tH(itH), type(itype), index(iindex) {
-    doorDir = 0;
+HoleData::HoleData(int itX, int itY, int itW, int itH, HoleType itype, int iindex):
+inCircuit(false), doorDir(0), tX(itX), tY(itY), tW(itW), tH(itH), type(itype), index(iindex) {
 }
 
 HoleData::~HoleData() {
@@ -416,7 +456,7 @@ MapCreator::MapCreator():
 _creating(false),
 _mapBase(nullptr),
 _mapData(nullptr) {
-    srand((int)time(0));
+    getReadyForRandom();
 }
 
 MapCreator::~MapCreator() {
@@ -498,18 +538,6 @@ void MapCreator::threadLoop() {
 
         log("begin to create map");
 
-        for (int i = 0; i < 10; i++) {
-            MapTmpData* tmpData = new MapTmpData();
-
-            initTmpData(tmpData);
-            digHole(tmpData);
-            calcHoleRelation(tmpData);
-            connectHole(tmpData);
-            designatedDoorDirForHole(tmpData);
-
-            delete tmpData;
-        }
-
         MapTmpData* tmpData = new MapTmpData();
 
         initTmpData(tmpData);
@@ -584,11 +612,12 @@ void MapCreator::digHole(MapTmpData* tmpData) {
         setMap(holeTMap, fi->tX, fi->tY, fi->tW, fi->tH, FI_HOLE_ID_BEGIN + holeIndex);
         setBlankMap(holeTMap, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + holeIndex); // 镶边
 
-        auto holeData = new HoleData(fi->tX, fi->tY, fi->tW, fi->tH, 1, holeIndex);
+        auto holeData = new HoleData(fi->tX, fi->tY, fi->tW, fi->tH, HoleType::fi, holeIndex);
         if (fi->door[0].size() > 0) holeData->doorDir |= DOOR_UP;
         if (fi->door[1].size() > 0) holeData->doorDir |= DOOR_DOWN;
         if (fi->door[2].size() > 0) holeData->doorDir |= DOOR_LEFT;
         if (fi->door[3].size() > 0) holeData->doorDir |= DOOR_RIGHT;
+        for (int i = 0; i < 4; i++) { holeData->substitutesMap[1 << i] = 1 << fi->substitutes[i]; }
         tmpData->holeVec.push_back(holeData);
         holeIndex++;
     }
@@ -729,7 +758,7 @@ void MapCreator::digHole(MapTmpData* tmpData) {
         int beginY = creatingDir > 0 ? ty : curTY;
         setMap(holeTMap, beginX, beginY, holeTW, holeTH, RA_HOLE_ID_BEGIN + holeIndex);
         setBlankMap(holeTMap, beginX - 1, beginY - 1, holeTW + 2, holeTH + 2, RA_EDGE_ID_BEGIN + holeIndex); // 镶边
-        tmpData->holeVec.push_back(new HoleData(beginX, beginY, holeTW, holeTH, 2, holeIndex));
+        tmpData->holeVec.push_back(new HoleData(beginX, beginY, holeTW, holeTH, HoleType::ra, holeIndex));
 
         // 检测是否完成
         holeBlockSize -= (holeTW * holeTH);
@@ -868,8 +897,6 @@ void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
             }
         }
 
-        log(">>>>>>>>>>>>> size %lu", hole->relations.size());
-
         // 根据offset，移除太远的角的关系
         float leftDis, rightDis, upDis, downDis;
         bool leftUpOffset = false, leftDownOffset = false, rightUpOffset = false, rightDownOffset = false,
@@ -877,75 +904,123 @@ void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
         for (int i = 0; i < hole->relations.size(); i++) {
             HoleRelation* thisRelation = hole->relations[i];
             HoleData* anoHole = tmpData->holeVec[thisRelation->anoHoleIndex];
-            log("index: this hole %d, relation %d, another hole %d", myIndex, i, thisRelation->anoHoleIndex);
             switch (thisRelation->dir) {
                 case HoleDir::lef_mid:
                     GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(leftDis, leftUpOffset, leftDownOffset);
-                    log("lef mid dis %f", thisRelation->distance);
                     break;
                 case HoleDir::rig_mid:
                     GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(rightDis, rightUpOffset, rightDownOffset);
-                    log("rig mid dis %f", thisRelation->distance);
                     break;
                 case HoleDir::mid_top:
                     GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(upDis, topLeftOffset, topRightOffset);
-                    log("mid top dis %f", thisRelation->distance);
                     break;
                 case HoleDir::mid_bot:
                     GET_DIS_AND_OFFSET_TYPE_FOR_REMOVE(downDis, botLeftOffset, botRightOffset);
-                    log("mid bot dis %f", thisRelation->distance);
                     break;
 
                 case HoleDir::lef_top:
-                    log("lef top");
                     if (leftUpOffset) {
-                        log("left up offset dis %f, left dis %f", (centerTX - halfTW) - (anoHole->tX + anoHole->tW), leftDis);
                         CHECK_DIS_AND_REMOVE((centerTX - halfTW) - (anoHole->tX + anoHole->tW), leftDis);
                     }
                     if (topLeftOffset) {
-                        log("topLeftOffset dis %f, up dis %f", (centerTY - halfTH) - (anoHole->tY + anoHole->tH), upDis);
                         CHECK_DIS_AND_REMOVE((centerTY - halfTH) - (anoHole->tY + anoHole->tH), upDis);
                     }
                     break;
                 case HoleDir::lef_bot:
-                    log("lef bot");
                     if (leftDownOffset) {
-                        log("leftDownOffset dis %f, leftDis dis %f", (centerTX - halfTW) - (anoHole->tX + anoHole->tW), leftDis);
                         CHECK_DIS_AND_REMOVE((centerTX - halfTW) - (anoHole->tX + anoHole->tW), leftDis);
                     }
                     if (botLeftOffset) {
-                        log("botLeftOffset dis %f, downDis dis %f", (float)anoHole->tY - (centerTY + halfTH), downDis);
                         CHECK_DIS_AND_REMOVE((float)anoHole->tY - (centerTY + halfTH), downDis);
                     }
                     break;
                 case HoleDir::rig_top:
-                    log("rig top");
                     if (rightUpOffset) {
-                        log("rightUpOffset dis %f, rightDis dis %f", (float)anoHole->tX - (centerTX + halfTW), rightDis);
                         CHECK_DIS_AND_REMOVE((float)anoHole->tX - (centerTX + halfTW), rightDis);
                     }
                     if (topRightOffset) {
-                        log("topRightOffset dis %f, upDis dis %f", (centerTY - halfTH) - (anoHole->tY + anoHole->tH), upDis);
                         CHECK_DIS_AND_REMOVE((centerTY - halfTH) - (anoHole->tY + anoHole->tH), upDis);
                     }
                     break;
                 case HoleDir::rig_bot:
                     if (rightDownOffset) {
-                        log("rightDownOffset dis %f, rightDis dis %f", (float)anoHole->tX - (centerTX + halfTW), rightDis);
                         CHECK_DIS_AND_REMOVE((float)anoHole->tX - (centerTX + halfTW), rightDis);
                     }
                     if (botRightOffset) {
-                        log("botRightOffset dis %f, downDis dis %f", (float)anoHole->tY - (centerTY + halfTH), downDis);
                         CHECK_DIS_AND_REMOVE((float)anoHole->tY - (centerTY + halfTH), downDis);
                     }
                     break;
             }
         }
-
-        log(">>>>>>>>>>>>> end size %lu", hole->relations.size());
-        log(">");
-        log(">");
     }
+}
+
+static HoleDir getOppositeDir(HoleDir dir) {
+    switch (dir) {
+        case HoleDir::lef_mid: return HoleDir::rig_mid;
+        case HoleDir::rig_mid: return HoleDir::lef_mid;
+        case HoleDir::mid_top: return HoleDir::mid_bot;
+        case HoleDir::mid_bot: return HoleDir::mid_top;
+        case HoleDir::lef_top: return HoleDir::rig_bot;
+        case HoleDir::lef_bot: return HoleDir::rig_top;
+        case HoleDir::rig_top: return HoleDir::lef_bot;
+        case HoleDir::rig_bot: return HoleDir::lef_top;
+    }
+}
+
+// 把斜向的dir转成直向的
+static HoleDir getStraightHoleDir(HoleDir dir) {
+    switch (dir) {
+        case HoleDir::lef_top: return (getRandom(0, 1) == 1 ? HoleDir::lef_mid : HoleDir::mid_top);
+        case HoleDir::lef_bot: return (getRandom(0, 1) == 1 ? HoleDir::lef_mid : HoleDir::mid_bot);
+        case HoleDir::rig_top: return (getRandom(0, 1) == 1 ? HoleDir::rig_mid : HoleDir::mid_top);
+        case HoleDir::rig_bot: return (getRandom(0, 1) == 1 ? HoleDir::rig_mid : HoleDir::mid_bot);
+        default: return dir;
+    }
+}
+
+static int getDoorDirFromStraightHoleDir(HoleDir dir) {
+    switch (dir) {
+        case HoleDir::lef_mid: return DOOR_LEFT;
+        case HoleDir::rig_mid: return DOOR_RIGHT;
+        case HoleDir::mid_top: return DOOR_UP;
+        case HoleDir::mid_bot: return DOOR_DOWN;
+        default: return 0; // 不会到这里
+    }
+}
+
+static HoleDir getHoleDirFromDoorDir(int dir) {
+    switch (dir) {
+        case DOOR_LEFT: return HoleDir::lef_mid;
+        case DOOR_RIGHT: return HoleDir::rig_mid;
+        case DOOR_UP: return HoleDir::mid_top;
+        case DOOR_DOWN: return HoleDir::mid_bot;
+        default: return HoleDir::lef_mid; // 不会到这里
+    }
+}
+
+static PipeEndPoint* createPipeEndPoint(HoleData* hole, HoleDir dir) {
+    PipeEndPoint* endPoint = new PipeEndPoint();
+
+    endPoint->holeIndex = hole->index;
+
+    if (hole->type == HoleType::fi) { // 固定块如果有不能连接的方向，则用另一个方向替代
+        int ddir = getDoorDirFromStraightHoleDir(getStraightHoleDir(dir));
+        int substitutesDir = hole->substitutesMap.find(ddir)->second; // 必定存在
+        endPoint->dir = getHoleDirFromDoorDir(substitutesDir);
+    } else {
+        endPoint->dir = getStraightHoleDir(dir);
+        hole->doorDir |= getDoorDirFromStraightHoleDir(endPoint->dir);
+    }
+
+    return endPoint;
+}
+
+static PipeData* createPipe(HoleData* my, HoleDir dir, HoleData* another, HoleDir oppositeDir) {
+    PipeData* pipe = new PipeData();
+    pipe->endPoints[0] = createPipeEndPoint(my, dir);
+    pipe->endPoints[1] = createPipeEndPoint(another, oppositeDir);
+    return pipe;
 }
 
 static void dealRelationPathForConnection(MapTmpData* tmpData, HoleRelation* relation, HoleData* anoHole);
@@ -964,28 +1039,22 @@ static void dealRelationPathForConnection(MapTmpData* tmpData, HoleRelation* rel
 
     // 查看有没有更近的已经在通路的坑
     int myIndex = relation->myHoleIndex;
-    bool reverse = false; // true的话my和another对调，让pipe的朝向保持一致
     for (HoleRelation* anoRelation : anoHole->relations) {
         if (anoRelation->anoHoleIndex == myIndex) break;
 
         HoleData* anoAnoHole = tmpData->holeVec[anoRelation->anoHoleIndex];
         if (anoAnoHole->inCircuit) {
             curRelation = anoRelation;
-            reverse = true;
             break;
         }
     }
 
-    PipeData* pipe = new PipeData();
-    if (reverse) {
-        pipe->holeIndexs[0] = curRelation->anoHoleIndex;
-        pipe->holeIndexs[1] = curRelation->myHoleIndex;
-    } else {
-        pipe->holeIndexs[0] = curRelation->myHoleIndex;
-        pipe->holeIndexs[1] = curRelation->anoHoleIndex;
-    }
+    HoleData* my = tmpData->holeVec[curRelation->myHoleIndex];
+    HoleData* another = tmpData->holeVec[curRelation->anoHoleIndex];
+    HoleDir dir = curRelation->dir;
+    HoleDir oppositeDir = getOppositeDir(curRelation->dir);
 
-    tmpData->pipeVec.push_back(pipe);
+    tmpData->pipeVec.push_back(createPipe(my, dir, another, oppositeDir));
     curRelation->pipeIndex = (int)tmpData->pipeVec.size() - 1;
 
     dealEachRelationForConnection(tmpData, anoHole);
@@ -1003,10 +1072,6 @@ void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
     log(">>>>");
     log(">>>>");
 
-}
-
-int MapCreator::getRandom(int from, int to) {
-    return (rand() % (to - from + 1)) + from;
 }
 
 MY_SPACE_END
@@ -1167,6 +1232,7 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
     se::Value te;
     se::Value co;
     se::Value door;
+    se::Value substitutes;
 
     bool ok;
     uint32_t len = 0;
@@ -1248,6 +1314,23 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
         }
 
         ret->door[i] = subVec;
+    }
+
+    // sub
+    ok = obj->getProperty("substitutes", &substitutes);
+    SE_PRECONDITION2(ok && substitutes.isObject(), false, "error substitutes");
+
+    se::Object* substitutesobj = substitutes.toObject();
+    assert(substitutesobj->isArray());
+    ok = substitutesobj->getArrayLength(&len);
+    SE_PRECONDITION2(ok, false, "error substitutes len");
+    assert(len == 4); // 上下左右，只能是4个
+
+    se::Value substitutestmp;
+    for (uint32_t i = 0; i < len; ++i) {
+        ok = substitutesobj->getArrayElement(i, &substitutestmp);
+        SE_PRECONDITION2(ok && substitutestmp.isNumber(), false, "error substitutestmp sub tmp");
+        ret->substitutes[i] = substitutestmp.toInt32();
     }
 
     return true;
