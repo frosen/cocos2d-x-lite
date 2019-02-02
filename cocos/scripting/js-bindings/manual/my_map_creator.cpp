@@ -206,7 +206,7 @@ public:
 
     int holeIndex;
     HoleDir dir;
-    int tW;
+    int tX;
     int tY;
 };
 
