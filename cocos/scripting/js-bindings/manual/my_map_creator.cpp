@@ -22,6 +22,12 @@ USING_NS_CC;
 
 // 测试函数 ---------------------------------------------------------------
 
+static int64_t getCurrentTime() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
 static void printVecVec(std::vector<std::vector<int>> &vecvec) {
     printf("vvvvvvvvvvvvvvv\n");
     for (int i = 0; i < vecvec.size(); i++) {
@@ -92,19 +98,7 @@ public:
     int usingTXs; // 横向使用的块 如 110011，就是使用两边各两个
     int usingTYs; // 纵向使用的块
 
-    std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向（***每2个int一组，分别是x，y）
-
-    int getDoorLen(int key) {
-        return (int)door[key].size() / 2;
-    }
-
-    int getDoorX(int key, int index) {
-        return door[key][index * 2];
-    }
-
-    int getDoorY(int key, int index) {
-        return door[key][index * 2 + 1];
-    }
+    std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向，值对应从左到右从上到下，从0开始增加
 };
 
 #define MAX_R_TW (6)
@@ -138,20 +132,8 @@ public:
 
     std::vector<std::vector<int>> te; // 地形
     std::vector<std::vector<int>> co; // 碰撞
-    std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向（***每2个int一组，分别是x，y）
+    std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向
     int substitutes[4]; // 上，下，左，右 如果不能连接，则替代的方向0-3
-
-    int getDoorLen(int key) {
-        return (int)door[key].size() / 2;
-    }
-
-    int getDoorX(int key, int index) {
-        return door[key][index * 2];
-    }
-
-    int getDoorY(int key, int index) {
-        return door[key][index * 2 + 1];
-    }
 };
 
 #define NO_ENEMY_KEY (1000)
@@ -235,6 +217,8 @@ public:
     virtual ~PipeData();
 
     PipeEndPoint* endPoints[2];
+
+    bool connected; // 默认为true，但有的管子可以不通
 };
 
 // 标记其他hole的位置关系
@@ -294,10 +278,10 @@ public:
 
 // 地图生成器 ----------------------------------------------------------------
 
-#define FI_HOLE_ID_BEGIN (10000)
-#define RA_HOLE_ID_BEGIN (20000)
-#define FI_EDGE_ID_BEGIN (1000)
-#define RA_EDGE_ID_BEGIN (2000)
+#define FI_HOLE_ID_BEGIN (1000)
+#define RA_HOLE_ID_BEGIN (2000)
+#define FI_EDGE_ID_BEGIN (100)
+#define RA_EDGE_ID_BEGIN (200)
 
 class MapCreator {
 public:
@@ -312,7 +296,7 @@ public:
     void addMapEleIndex(const int sceneKey, const int tW, const int tH, const int doorType, const int eleIndex);
 
     // 读取模板，生成地图，然后从回调传出
-    void createMap(const int sceneKey, const MapTemp* mapBase, const std::function<void(MapData*)>& callback);
+    void createMap(const int sceneKey, const bool advance, const MapTemp* mapBase, const std::function<void(MapData*)>& callback);
 
 protected:
     void init();
@@ -321,7 +305,8 @@ protected:
     void initTmpData(MapTmpData* tmpData);
     void digHole(MapTmpData* tmpData);
     void calcHoleRelation(MapTmpData* tmpData);
-    void connectHole(MapTmpData* tmpData);
+    void connectAllHole(MapTmpData* tmpData);
+    void connectExtraHole(MapTmpData* tmpData);
     void designatedDoorDirForHole(MapTmpData* tmpData);
 
 private:
@@ -337,6 +322,7 @@ private:
     std::map<int, MapEleList*> _mapEleListMap; // 不同场景Key（场景key = 场景id * 10 + 小场景id）对应的元素清单
 
     int _curSceneKey;
+    bool _curAreaIsAdvance;
     MapTemp* _mapBase;
     std::function<void(MapData*)> _callback;
 
@@ -405,7 +391,7 @@ PipeEndPoint::~PipeEndPoint() {
 
 // ---------------
 
-PipeData::PipeData() {
+PipeData::PipeData(): connected(true) {
     endPoints[0] = nullptr;
     endPoints[1] = nullptr;
 }
@@ -504,7 +490,7 @@ void MapCreator::addMapEleIndex(const int sceneKey, const int tW, const int tH, 
     }
 }
 
-void MapCreator::createMap(const int sceneKey, const MapTemp* mapBase, const std::function<void(MapData*)>& callback) {
+void MapCreator::createMap(const int sceneKey, const bool advance, const MapTemp* mapBase, const std::function<void(MapData*)>& callback) {
     if (_creating) return;
     _creating = true;
 
@@ -518,6 +504,7 @@ void MapCreator::createMap(const int sceneKey, const MapTemp* mapBase, const std
     }
 
     _curSceneKey = sceneKey;
+    _curAreaIsAdvance = advance;
     _mapBase = const_cast<MapTemp*>(mapBase);
     _callback = callback;
 
@@ -543,7 +530,8 @@ void MapCreator::threadLoop() {
         initTmpData(tmpData);
         digHole(tmpData);
         calcHoleRelation(tmpData);
-        connectHole(tmpData);
+        connectAllHole(tmpData);
+        connectExtraHole(tmpData);
         designatedDoorDirForHole(tmpData);
 
         // 结束
@@ -1016,7 +1004,12 @@ static PipeEndPoint* createPipeEndPoint(HoleData* hole, HoleDir dir) {
     return endPoint;
 }
 
-static PipeData* createPipe(HoleData* my, HoleDir dir, HoleData* another, HoleDir oppositeDir) {
+static PipeData* createPipe(MapTmpData* tmpData, HoleRelation* relation) {
+    HoleData* my = tmpData->holeVec[relation->myHoleIndex];
+    HoleData* another = tmpData->holeVec[relation->anoHoleIndex];
+    HoleDir dir = relation->dir;
+    HoleDir oppositeDir = getOppositeDir(relation->dir);
+
     PipeData* pipe = new PipeData();
     pipe->endPoints[0] = createPipeEndPoint(my, dir);
     pipe->endPoints[1] = createPipeEndPoint(another, oppositeDir);
@@ -1036,35 +1029,69 @@ static void dealEachRelationForConnection(MapTmpData* tmpData, HoleData* hole) {
 static void dealRelationPathForConnection(MapTmpData* tmpData, HoleRelation* relation, HoleData* anoHole) {
     anoHole->inCircuit = true;
     HoleRelation* curRelation = relation;
+    HoleRelation* oppRelation = nullptr; // 同一个pipe但记录在对面hole中的关系
 
     // 查看有没有更近的已经在通路的坑
     int myIndex = relation->myHoleIndex;
     for (HoleRelation* anoRelation : anoHole->relations) {
-        if (anoRelation->anoHoleIndex == myIndex) break;
-
+        if (anoRelation->anoHoleIndex == myIndex) {
+            oppRelation = anoRelation;
+            break;
+        }
         HoleData* anoAnoHole = tmpData->holeVec[anoRelation->anoHoleIndex];
         if (anoAnoHole->inCircuit) {
             curRelation = anoRelation;
+            int anoIndex = anoHole->index;
+            for (HoleRelation* anoAnoRelation : anoAnoHole->relations) {
+                if (anoAnoRelation->anoHoleIndex == anoIndex) {
+                    oppRelation = anoAnoRelation;
+                    break;
+                }
+            }
             break;
         }
     }
 
-    HoleData* my = tmpData->holeVec[curRelation->myHoleIndex];
-    HoleData* another = tmpData->holeVec[curRelation->anoHoleIndex];
-    HoleDir dir = curRelation->dir;
-    HoleDir oppositeDir = getOppositeDir(curRelation->dir);
-
-    tmpData->pipeVec.push_back(createPipe(my, dir, another, oppositeDir));
+    tmpData->pipeVec.push_back(createPipe(tmpData, curRelation));
     curRelation->pipeIndex = (int)tmpData->pipeVec.size() - 1;
+    if (oppRelation) oppRelation->pipeIndex = curRelation->pipeIndex;
 
     dealEachRelationForConnection(tmpData, anoHole);
 }
 
 // 根据关系，连接所有的hole，形成通路
-void MapCreator::connectHole(MapTmpData* tmpData) {
+void MapCreator::connectAllHole(MapTmpData* tmpData) {
     HoleData* hole = tmpData->holeVec[0];
     hole->inCircuit = true;
     dealEachRelationForConnection(tmpData, hole);
+}
+
+// 生成额外的通路，使表现更丰富，通路可通可不通
+void MapCreator::connectExtraHole(MapTmpData* tmpData) {
+    std::vector<HoleRelation*> unusedRelations;
+    std::set<int> unusedIndexKeySet;
+    for (HoleData* hole : tmpData->holeVec) {
+        for (HoleRelation* relation : hole->relations) {
+            if (relation->pipeIndex == -1) {
+                int oppIndexKey = relation->anoHoleIndex * 100 + relation->myHoleIndex;
+                if (unusedIndexKeySet.find(oppIndexKey) != unusedIndexKeySet.end()) continue;
+
+                unusedRelations.push_back(relation);
+                int myIndexKey = relation->myHoleIndex * 100 + relation->anoHoleIndex;
+                unusedIndexKeySet.insert(myIndexKey);
+            }
+        }
+    }
+
+    int extraCount = (int)unusedRelations.size() / getRandom(2, 3);
+    for (int _ = 0; _ < extraCount; _++) {
+        int index = getRandom(0, (int)unusedRelations.size() - 1);
+        HoleRelation* curRelation = unusedRelations[index];
+        PipeData* pipe = createPipe(tmpData, curRelation);
+        pipe->connected = getRandom(0, 1) == 1;
+        tmpData->pipeVec.push_back(pipe);
+        unusedRelations.erase(unusedRelations.begin() + index);
+    }
 }
 
 void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
@@ -1576,21 +1603,25 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
     const auto& args = s.args();
     size_t argc = args.size();
     CC_UNUSED bool ok = true;
-    if (argc == 3) {
+    if (argc == 4) {
         int arg0 = 0;
-        MapTemp* arg1 = new MapTemp();
-        std::function<void(MapData*)> arg2 = nullptr;
+        bool arg1 = false;
+        MapTemp* arg2 = new MapTemp();
+        std::function<void(MapData*)> arg3 = nullptr;
 
         ok &= seval_to_int32(args[0], (int32_t*)&arg0);
         SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 0");
 
-        ok &= seval_to_maptemp(args[1], arg1);
+        ok &= seval_to_boolean(args[1], (bool*)&arg1);
         SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 1");
 
+        ok &= seval_to_maptemp(args[2], arg2);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 2");
+
         do {
-            if (args[2].isObject() && args[2].toObject()->isFunction()) {
+            if (args[3].isObject() && args[3].toObject()->isFunction()) {
                 se::Value jsThis(s.thisObject());
-                se::Value jsFunc(args[2]);
+                se::Value jsFunc(args[3]);
                 jsThis.toObject()->attachObject(jsFunc.toObject());
                 auto lambda = [=](MapData* larg0) -> void {
                     se::ScriptEngine::getInstance()->clearException();
@@ -1608,7 +1639,7 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
                         se::ScriptEngine::getInstance()->clearException();
                     }
                 };
-                arg2 = lambda;
+                arg3 = lambda;
             } else {
                 ok = false;
             }
@@ -1616,7 +1647,7 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
 
         SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments");
 
-        cobj->createMap(arg0, arg1, arg2);
+        cobj->createMap(arg0, arg1, arg2, arg3);
         return true;
     }
     SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 2);
