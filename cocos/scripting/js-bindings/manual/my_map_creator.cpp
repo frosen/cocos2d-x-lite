@@ -103,7 +103,13 @@ public:
 
 #define MAX_R_TW (6)
 #define MAX_R_TH (6)
-#define MAX_DOOR_TYPE (8)
+#define MAX_DOOR_TYPE (11) // 2门6个（左上，右上，左下，右下，左右，上下） 3门4个（左上右，上右下，右下左，下左上） 4门1个
+
+enum class EleDoorType {
+    lef_top, rig_top, lef_bot, rig_bot, lef_rig, top_bot,
+    lef_top_rig, top_rig_bot, rig_bot_lef, bot_lef_top,
+    all
+};
 
 // 元素清单，记录了不同宽高，不同门方向可以使用的元素
 class MapEleList {
@@ -261,6 +267,8 @@ public:
     std::map<int, int> substitutesMap; // HoleDir: HoleDir
 
     std::vector<HoleRelation*> relations;
+
+    MapEle* ele;
 };
 
 class MapTmpData {
@@ -307,7 +315,7 @@ protected:
     void calcHoleRelation(MapTmpData* tmpData);
     void connectAllHole(MapTmpData* tmpData);
     void connectExtraHole(MapTmpData* tmpData);
-    void designatedDoorDirForHole(MapTmpData* tmpData);
+    void assignEleToHole(MapTmpData* tmpData);
 
 private:
     bool _creating;
@@ -532,7 +540,7 @@ void MapCreator::threadLoop() {
         calcHoleRelation(tmpData);
         connectAllHole(tmpData);
         connectExtraHole(tmpData);
-        designatedDoorDirForHole(tmpData);
+        assignEleToHole(tmpData);
 
         // 结束
         auto sch = cocos2d::Director::getInstance()->getScheduler();
@@ -1094,11 +1102,83 @@ void MapCreator::connectExtraHole(MapTmpData* tmpData) {
     }
 }
 
-void MapCreator::designatedDoorDirForHole(MapTmpData* tmpData) {
+static void getEleDirTypesFromHoleDoorDir(int doorDir, std::vector<int>* eleDirTypes) {
+    bool doorTypes[MAX_DOOR_TYPE] = { 0 }; // 反向获取，true为不可以的类型
+    if ((doorDir | DOOR_UP) == 0) {
+        doorTypes[(int)EleDoorType::all] = true;
+        doorTypes[(int)EleDoorType::lef_top] = true;
+        doorTypes[(int)EleDoorType::rig_top] = true;
+        doorTypes[(int)EleDoorType::top_bot] = true;
+        doorTypes[(int)EleDoorType::top_rig_bot] = true;
+        doorTypes[(int)EleDoorType::bot_lef_top] = true;
+        doorTypes[(int)EleDoorType::lef_top_rig] = true;
+    }
 
-    log(">>>>");
-    log(">>>>");
+    if ((doorDir | DOOR_DOWN) == 0) {
+        doorTypes[(int)EleDoorType::all] = true;
+        doorTypes[(int)EleDoorType::lef_bot] = true;
+        doorTypes[(int)EleDoorType::rig_bot] = true;
+        doorTypes[(int)EleDoorType::top_bot] = true;
+        doorTypes[(int)EleDoorType::top_rig_bot] = true;
+        doorTypes[(int)EleDoorType::bot_lef_top] = true;
+        doorTypes[(int)EleDoorType::rig_bot_lef] = true;
+    }
 
+    if ((doorDir | DOOR_LEFT) == 0) {
+        doorTypes[(int)EleDoorType::all] = true;
+        doorTypes[(int)EleDoorType::lef_top] = true;
+        doorTypes[(int)EleDoorType::lef_bot] = true;
+        doorTypes[(int)EleDoorType::lef_rig] = true;
+        doorTypes[(int)EleDoorType::lef_top_rig] = true;
+        doorTypes[(int)EleDoorType::rig_bot_lef] = true;
+        doorTypes[(int)EleDoorType::bot_lef_top] = true;
+    }
+
+    if ((doorDir | DOOR_RIGHT) == 0) {
+        doorTypes[(int)EleDoorType::all] = true;
+        doorTypes[(int)EleDoorType::rig_top] = true;
+        doorTypes[(int)EleDoorType::rig_bot] = true;
+        doorTypes[(int)EleDoorType::lef_rig] = true;
+        doorTypes[(int)EleDoorType::lef_top_rig] = true;
+        doorTypes[(int)EleDoorType::rig_bot_lef] = true;
+        doorTypes[(int)EleDoorType::top_rig_bot] = true;
+    }
+
+    for (int i = 0; i < MAX_DOOR_TYPE; i++) {
+        if (doorTypes[i] == false) eleDirTypes->push_back(i);
+    }
+}
+
+void MapCreator::assignEleToHole(MapTmpData* tmpData) {
+
+    int sceneKey = this->_curSceneKey * 10 + (this->_curAreaIsAdvance ? 1 : 0);
+    MapEleList* list = this->_mapEleListMap[sceneKey];
+
+    for (HoleData* hole : tmpData->holeVec) {
+        if (hole->type == HoleType::fi) continue;
+        std::vector<int> eleDirTypes;
+        getEleDirTypesFromHoleDoorDir(hole->doorDir, &eleDirTypes);
+
+        std::vector<int>* itList = list->list[hole->tW][hole->tH];
+
+        int count = 0;
+        for (int t : eleDirTypes) {
+            std::vector<int> eleIndexs = *(itList + t);
+            count += (int)eleIndexs.size();
+        }
+
+        int index = getRandom(0, count - 1);
+        for (int t : eleDirTypes) {
+            std::vector<int> eleIndexs = *(itList + t);
+            int size = (int)eleIndexs.size();
+            if (index >= size) {
+                index -= size;
+                continue;
+            } else {
+                hole->ele = this->_mapEleVec[eleIndexs[index]];
+            }
+        }
+    }
 }
 
 MY_SPACE_END
