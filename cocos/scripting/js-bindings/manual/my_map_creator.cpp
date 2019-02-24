@@ -84,8 +84,8 @@ public:
 
     int tW;
     int tH;
-    std::vector<std::vector<int>> te; // 地形
-    std::vector<std::vector<int>> co; // 碰撞
+
+    std::vector<std::vector<int>> co; // 碰撞 ele的地形和碰撞数据中数字是一致的，所以有一个即可
 };
 
 // 随机区域中使用的区块模板，从Base中扣出来
@@ -95,17 +95,21 @@ public:
     virtual ~MapEle();
 
     int baseIndex; // base序号
+
+    int tW;
+    int tH;
     int usingTXs; // 横向使用的块 如 110011，就是使用两边各两个
     int usingTYs; // 纵向使用的块
 
-    std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向，值对应从左到右从上到下，从0开始增加
+    std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向，值对应从左到右从上到下，从0开始的tX/tY
 };
 
 #define MAX_R_TW (6)
 #define MAX_R_TH (6)
-#define MAX_DOOR_TYPE (11) // 2门6个（左上，右上，左下，右下，左右，上下） 3门4个（左上右，上右下，右下左，下左上） 4门1个
+#define MAX_DOOR_TYPE (15) // 1门4个 2门6个（左上，右上，左下，右下，左右，上下） 3门4个（左上右，上右下，右下左，下左上） 4门1个
 
 enum class EleDoorType {
+    lef, top, rig, bot,
     lef_top, rig_top, lef_bot, rig_bot, lef_rig, top_bot,
     lef_top_rig, top_rig_bot, rig_bot_lef, bot_lef_top,
     all
@@ -327,7 +331,7 @@ private:
     // 输入数据
     std::vector<MapEleBase*> _mapEleBaseVec;
     std::vector<MapEle*> _mapEleVec;
-    std::map<int, MapEleList*> _mapEleListMap; // 不同场景Key（场景key = 场景id * 10 + 小场景id）对应的元素清单
+    std::map<int, MapEleList*> _mapEleListMap; // 不同场景Key（场景key = 场景id * 10 + 小场景id normal:0,advanced:1）对应的元素清单
 
     int _curSceneKey;
     bool _curAreaIsAdvance;
@@ -664,7 +668,7 @@ void MapCreator::digHole(MapTmpData* tmpData) {
 
         // 获得随机宽高最大值
         int holeTWMax = getRandom(3, MAX_R_TW);
-        int holeTHMax = getRandom(3, MAX_R_TW);
+        int holeTHMax = getRandom(3, MAX_R_TH);
 
         int curTX = tx;
         int curTY = ty;
@@ -1102,51 +1106,52 @@ void MapCreator::connectExtraHole(MapTmpData* tmpData) {
     }
 }
 
-static void getEleDirTypesFromHoleDoorDir(int doorDir, std::vector<int>* eleDirTypes) {
+static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
     bool doorTypes[MAX_DOOR_TYPE] = { 0 }; // 反向获取，true为不可以的类型
-    if ((doorDir | DOOR_UP) == 0) {
-        doorTypes[(int)EleDoorType::all] = true;
+    if ((doorDir | DOOR_UP) == 1) {
+        doorTypes[(int)EleDoorType::lef] = true;
+        doorTypes[(int)EleDoorType::rig] = true;
+        doorTypes[(int)EleDoorType::bot] = true;
+        doorTypes[(int)EleDoorType::lef_bot] = true;
+        doorTypes[(int)EleDoorType::rig_bot] = true;
+        doorTypes[(int)EleDoorType::lef_rig] = true;
+        doorTypes[(int)EleDoorType::rig_bot_lef] = true;
+    }
+
+    if ((doorDir | DOOR_DOWN) == 1) {
+        doorTypes[(int)EleDoorType::lef] = true;
+        doorTypes[(int)EleDoorType::rig] = true;
+        doorTypes[(int)EleDoorType::top] = true;
         doorTypes[(int)EleDoorType::lef_top] = true;
         doorTypes[(int)EleDoorType::rig_top] = true;
-        doorTypes[(int)EleDoorType::top_bot] = true;
-        doorTypes[(int)EleDoorType::top_rig_bot] = true;
-        doorTypes[(int)EleDoorType::bot_lef_top] = true;
+        doorTypes[(int)EleDoorType::lef_rig] = true;
         doorTypes[(int)EleDoorType::lef_top_rig] = true;
     }
 
-    if ((doorDir | DOOR_DOWN) == 0) {
-        doorTypes[(int)EleDoorType::all] = true;
-        doorTypes[(int)EleDoorType::lef_bot] = true;
+    if ((doorDir | DOOR_LEFT) == 1) {
+        doorTypes[(int)EleDoorType::top] = true;
+        doorTypes[(int)EleDoorType::rig] = true;
+        doorTypes[(int)EleDoorType::bot] = true;
+        doorTypes[(int)EleDoorType::rig_top] = true;
         doorTypes[(int)EleDoorType::rig_bot] = true;
         doorTypes[(int)EleDoorType::top_bot] = true;
         doorTypes[(int)EleDoorType::top_rig_bot] = true;
-        doorTypes[(int)EleDoorType::bot_lef_top] = true;
-        doorTypes[(int)EleDoorType::rig_bot_lef] = true;
-    }
-
-    if ((doorDir | DOOR_LEFT) == 0) {
-        doorTypes[(int)EleDoorType::all] = true;
-        doorTypes[(int)EleDoorType::lef_top] = true;
-        doorTypes[(int)EleDoorType::lef_bot] = true;
-        doorTypes[(int)EleDoorType::lef_rig] = true;
-        doorTypes[(int)EleDoorType::lef_top_rig] = true;
-        doorTypes[(int)EleDoorType::rig_bot_lef] = true;
-        doorTypes[(int)EleDoorType::bot_lef_top] = true;
     }
 
     if ((doorDir | DOOR_RIGHT) == 0) {
-        doorTypes[(int)EleDoorType::all] = true;
-        doorTypes[(int)EleDoorType::rig_top] = true;
-        doorTypes[(int)EleDoorType::rig_bot] = true;
-        doorTypes[(int)EleDoorType::lef_rig] = true;
-        doorTypes[(int)EleDoorType::lef_top_rig] = true;
-        doorTypes[(int)EleDoorType::rig_bot_lef] = true;
-        doorTypes[(int)EleDoorType::top_rig_bot] = true;
+        doorTypes[(int)EleDoorType::top] = true;
+        doorTypes[(int)EleDoorType::lef] = true;
+        doorTypes[(int)EleDoorType::bot] = true;
+        doorTypes[(int)EleDoorType::lef_top] = true;
+        doorTypes[(int)EleDoorType::lef_bot] = true;
+        doorTypes[(int)EleDoorType::top_bot] = true;
+        doorTypes[(int)EleDoorType::bot_lef_top] = true;
     }
 
     for (int i = 0; i < MAX_DOOR_TYPE; i++) {
-        if (doorTypes[i] == false) eleDirTypes->push_back(i);
+        if (doorTypes[i] == false) return (EleDoorType)i;
     }
+    return EleDoorType::all;
 }
 
 void MapCreator::assignEleToHole(MapTmpData* tmpData) {
@@ -1156,28 +1161,13 @@ void MapCreator::assignEleToHole(MapTmpData* tmpData) {
 
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->type == HoleType::fi) continue;
-        std::vector<int> eleDirTypes;
-        getEleDirTypesFromHoleDoorDir(hole->doorDir, &eleDirTypes);
+        EleDoorType eleDoorType = getEleDirTypesFromHoleDoorDir(hole->doorDir);
 
-        std::vector<int>* itList = list->list[hole->tW][hole->tH];
+        std::vector<int> eleList = list->list[hole->tW - 1][hole->tH - 1][(int)eleDoorType];
 
-        int count = 0;
-        for (int t : eleDirTypes) {
-            std::vector<int> eleIndexs = *(itList + t);
-            count += (int)eleIndexs.size();
-        }
-
-        int index = getRandom(0, count - 1);
-        for (int t : eleDirTypes) {
-            std::vector<int> eleIndexs = *(itList + t);
-            int size = (int)eleIndexs.size();
-            if (index >= size) {
-                index -= size;
-                continue;
-            } else {
-                hole->ele = this->_mapEleVec[eleIndexs[index]];
-            }
-        }
+        int index = getRandom(0, (int)eleList.size() - 1);
+        int eleIndex = eleList[index];
+        hole->ele = this->_mapEleVec[eleIndex];
     }
 }
 
@@ -1247,13 +1237,7 @@ bool seval_to_mapelebase(const se::Value& v, MapEleBase* ret) {
     SE_PRECONDITION2(ok && tH.isNumber(), false, "error tH");
     ret->tH = tH.toInt32();
 
-    // te co
-    ok = obj->getProperty("te", &te);
-    SE_PRECONDITION2(ok, false, "error te");
-
-    ok = seval_to_vecvec(te, &ret->te);
-    SE_PRECONDITION2(ok, false, "error te res");
-
+    // co
     ok = obj->getProperty("co", &co);
     SE_PRECONDITION2(ok, false, "error co");
 
@@ -1268,6 +1252,8 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     se::Object* obj = v.toObject();
 
     se::Value baseIndex;
+    se::Value tW;
+    se::Value tH;
     se::Value usingTXs;
     se::Value usingTYs;
     se::Value door;
@@ -1275,10 +1261,18 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     bool ok;
     uint32_t len = 0;
 
-    // index x y
+    // index x y w h
     ok = obj->getProperty("baseIndex", &baseIndex);
     SE_PRECONDITION2(ok && baseIndex.isNumber(), false, "error baseIndex");
     ret->baseIndex = baseIndex.toInt32();
+
+    ok = obj->getProperty("tW", &tW);
+    SE_PRECONDITION2(ok && tW.isNumber(), false, "error mapele tW");
+    ret->tW = tW.toInt32();
+
+    ok = obj->getProperty("tH", &tH);
+    SE_PRECONDITION2(ok && tH.isNumber(), false, "error mapele tH");
+    ret->tH = tH.toInt32();
 
     ok = obj->getProperty("usingTXs", &usingTXs);
     SE_PRECONDITION2(ok && usingTXs.isNumber(), false, "error usingTXs");
