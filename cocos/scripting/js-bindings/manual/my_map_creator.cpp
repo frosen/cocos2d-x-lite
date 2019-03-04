@@ -104,7 +104,7 @@ public:
     std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向，值对应从左到右从上到下，从0开始的tX/tY
 };
 
-#define MAX_R_TW (6)
+#define MAX_R_TW (7)
 #define MAX_R_TH (6)
 #define MAX_DOOR_TYPE (15) // 1门4个 2门6个（左上，右上，左下，右下，左右，上下） 3门4个（左上右，上右下，右下左，下左上） 4门1个
 
@@ -286,6 +286,9 @@ public:
     std::vector<std::vector<int>> holeTMap;
     std::vector<HoleData*> holeVec;
     std::vector<PipeData*> pipeVec;
+
+    int curSceneKey;
+    MapTemp* w_curTemp; // 弱引用的当前地图模板
 };
 
 // 地图生成器 ----------------------------------------------------------------
@@ -307,8 +310,11 @@ public:
     void addMapEle(const MapEle* mapEle);
     void addMapEleIndex(const int sceneKey, const int tW, const int tH, const int doorType, const int eleIndex);
 
-    // 读取模板，生成地图，然后从回调传出
-    void createMap(const int sceneKey, const bool advance, const MapTemp* mapBase, const std::function<void(MapData*)>& callback);
+    // 读取模板
+    void addMapTemp(const int sceneKey, const MapTemp* mapTemp);
+
+    // 生成地图，然后从回调传出
+    void createMap(const int sceneKey, const std::function<void(bool)>& callback);
 
 protected:
     void init();
@@ -331,15 +337,12 @@ private:
     // 输入数据
     std::vector<MapEleBase*> _mapEleBaseVec;
     std::vector<MapEle*> _mapEleVec;
-    std::map<int, MapEleList*> _mapEleListMap; // 不同场景Key（场景key = 场景id * 10 + 小场景id normal:0,advanced:1）对应的元素清单
+    std::map<int, MapEleList*> _mapEleListMap; // 不同场景Key对应的元素清单
+
+    std::map<int, MapTemp*> _mapTempMap; // 不同场景Key对应的地图模板
 
     int _curSceneKey;
-    bool _curAreaIsAdvance;
-    MapTemp* _mapBase;
-    std::function<void(MapData*)> _callback;
-
-    // 输出数据
-    MapData* _mapData;
+    std::function<void(bool)> _callback;
 };
 
 // 实现 --------------------------------------------------------------
@@ -451,9 +454,7 @@ MapTmpData::~MapTmpData() {
 static MapCreator *s_MapCreator = nullptr;
 
 MapCreator::MapCreator():
-_creating(false),
-_mapBase(nullptr),
-_mapData(nullptr) {
+_creating(false) {
     getReadyForRandom();
 }
 
@@ -472,8 +473,11 @@ MapCreator::~MapCreator() {
         _mapEleListMap.erase(it++);
     }
 
-    if (_mapBase) delete _mapBase;
-    if (_mapData) delete _mapData;
+    std::map<int, MapTemp*>::iterator it2;
+    for(it2 = _mapTempMap.begin(); it2 != _mapTempMap.end();) {
+        delete it2->second;
+        _mapTempMap.erase(it2++);
+    }
 }
 
 MapCreator* MapCreator::getInstance() {
@@ -502,22 +506,15 @@ void MapCreator::addMapEleIndex(const int sceneKey, const int tW, const int tH, 
     }
 }
 
-void MapCreator::createMap(const int sceneKey, const bool advance, const MapTemp* mapBase, const std::function<void(MapData*)>& callback) {
+void MapCreator::addMapTemp(const int sceneKey, const MapTemp* mapTemp) {
+    _mapTempMap[sceneKey] = const_cast<MapTemp*>(mapTemp);
+}
+
+void MapCreator::createMap(const int sceneKey, const std::function<void(bool)>& callback) {
     if (_creating) return;
     _creating = true;
 
-    if (_mapBase != nullptr) {
-        delete _mapBase;
-    }
-
-    if (_mapData != nullptr) {
-        delete _mapData;
-        _mapData = nullptr;
-    }
-
     _curSceneKey = sceneKey;
-    _curAreaIsAdvance = advance;
-    _mapBase = const_cast<MapTemp*>(mapBase);
     _callback = callback;
 
     std::unique_lock<std::mutex> lk(_sleepMutex);
@@ -538,6 +535,10 @@ void MapCreator::threadLoop() {
         log("begin to create map");
 
         MapTmpData* tmpData = new MapTmpData();
+        MapData* mapData = new MapData();
+
+        tmpData->curSceneKey = _curSceneKey;
+        tmpData->w_curTemp = _mapTempMap[_curSceneKey];
 
         initTmpData(tmpData);
         digHole(tmpData);
@@ -546,23 +547,27 @@ void MapCreator::threadLoop() {
         connectExtraHole(tmpData);
         assignEleToHole(tmpData);
 
+        // mapData 保存到本地 todo
+
+        // 释放
+        delete mapData;
+        delete tmpData;
+
         // 结束
         auto sch = cocos2d::Director::getInstance()->getScheduler();
         sch->performFunctionInCocosThread([=]() {
             _creating = false;
-//            _callback(_mapData);
+            _callback(true);
         });
-
-        delete tmpData;
     }
 }
 
 void MapCreator::initTmpData(MapTmpData* tmpData) {
-    tmpData->blockW = (int)_mapBase->ra[0].size();
-    tmpData->blockH = (int)_mapBase->ra.size();
+    tmpData->blockW = (int)(tmpData->w_curTemp->ra[0].size());
+    tmpData->blockH = (int)(tmpData->w_curTemp->ra.size());
 
     // 初始化一个矩阵，记录已经使用了的block，未使用为0，使用了为1
-    std::vector<std::vector<int>> copyRa(_mapBase->ra);
+    std::vector<std::vector<int>> copyRa(tmpData->w_curTemp->ra);
     tmpData->holeTMap = std::move(copyRa);
 }
 
@@ -608,7 +613,7 @@ void MapCreator::digHole(MapTmpData* tmpData) {
     int holeIndex = 0;
 
     // 处理固定块 并把固定块镶边
-    for (FiTemp* fi : _mapBase->fis) {
+    for (FiTemp* fi : tmpData->w_curTemp->fis) {
         setMap(holeTMap, fi->tX, fi->tY, fi->tW, fi->tH, FI_HOLE_ID_BEGIN + holeIndex);
         setBlankMap(holeTMap, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + holeIndex); // 镶边
 
@@ -1155,9 +1160,7 @@ static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
 }
 
 void MapCreator::assignEleToHole(MapTmpData* tmpData) {
-
-    int sceneKey = this->_curSceneKey * 10 + (this->_curAreaIsAdvance ? 1 : 0);
-    MapEleList* list = this->_mapEleListMap[sceneKey];
+    MapEleList* list = this->_mapEleListMap[tmpData->curSceneKey];
 
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->type == HoleType::fi) continue;
@@ -1506,71 +1509,6 @@ bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
     return true;
 }
 
-bool vecvec_to_seval(const std::vector<std::vector<int>>& v, se::Value* ret) {
-    assert(ret != nullptr);
-    se::HandleObject obj(se::Object::createArrayObject(v.size()));
-    bool ok = true;
-
-    uint32_t i = 0;
-    for (const std::vector<int>& value : v) {
-        se::Value tmp;
-        se::HandleObject subobj(se::Object::createArrayObject(value.size()));
-
-        uint32_t j = 0;
-        for (const int subvalue : value) {
-            if(!subobj->setArrayElement(j, se::Value(subvalue))) {
-                ok = false;
-                break;
-            }
-            ++j;
-        }
-        tmp.setObject(subobj);
-
-        if (!obj->setArrayElement(i, tmp)) {
-            ok = false;
-            break;
-        }
-        ++i;
-    }
-
-    if (ok)
-        ret->setObject(obj);
-
-    return ok;
-}
-
-bool mapdata_to_seval(const MapData* v, se::Value* ret) {
-    assert(v != nullptr && ret != nullptr);
-    se::HandleObject obj(se::Object::createPlainObject());
-
-    se::Value te;
-    vecvec_to_seval(v->te, &te);
-    obj->setProperty("te", te);
-
-    se::Value co;
-    vecvec_to_seval(v->co, &co);
-    obj->setProperty("co", co);
-
-    se::HandleObject groundobj(se::Object::createArrayObject(v->groundInfos.size()));
-    bool ok = true;
-
-    uint32_t i = 0;
-    for (const int value : v->groundInfos)
-    {
-        if(!groundobj->setArrayElement(i, se::Value(value))) {
-            ok = false;
-            break;
-        }
-        ++i;
-    }
-    se::Value groundtmp;
-    groundtmp.setObject(groundobj);
-    obj->setProperty("groundInfos", groundtmp);
-
-    ret->setObject(obj);
-    return true;
-}
-
 // js绑定 -------------------------------------------------------------------
 
 se::Object* __jsb_my_MapCreator_proto = nullptr;
@@ -1670,6 +1608,31 @@ static bool jsb_my_MapCreator_addMapEleIndex(se::State& s) {
 }
 SE_BIND_FUNC(jsb_my_MapCreator_addMapEleIndex);
 
+static bool jsb_my_MapCreator_addMapTemp(se::State& s) {
+    MapCreator* cobj = (MapCreator*)s.nativeThisObject();
+    SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_addMapEle : Invalid Native Object");
+
+    const auto& args = s.args();
+    size_t argc = args.size();
+    CC_UNUSED bool ok = true;
+    if (argc == 2) {
+        int arg0 = 0;
+        MapTemp* arg1 = new MapTemp();
+
+        ok &= seval_to_int32(args[0], (int32_t*)&arg0);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 0");
+
+        ok &= seval_to_maptemp(args[1], arg1);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 1");
+
+        cobj->addMapTemp(arg0, arg1);
+        return true;
+    }
+    SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 2);
+    return false;
+}
+SE_BIND_FUNC(jsb_my_MapCreator_addMapTemp)
+
 static bool jsb_my_MapCreator_createMap(se::State& s) {
     MapCreator* cobj = (MapCreator*)s.nativeThisObject();
     SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_addMapEle : Invalid Native Object");
@@ -1677,43 +1640,35 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
     const auto& args = s.args();
     size_t argc = args.size();
     CC_UNUSED bool ok = true;
-    if (argc == 4) {
+    if (argc == 2) {
         int arg0 = 0;
-        bool arg1 = false;
-        MapTemp* arg2 = new MapTemp();
-        std::function<void(MapData*)> arg3 = nullptr;
+        std::function<void(bool)> arg1 = nullptr;
 
         ok &= seval_to_int32(args[0], (int32_t*)&arg0);
         SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 0");
 
-        ok &= seval_to_boolean(args[1], (bool*)&arg1);
-        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 1");
-
-        ok &= seval_to_maptemp(args[2], arg2);
-        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 2");
-
         do {
-            if (args[3].isObject() && args[3].toObject()->isFunction()) {
+            if (args[1].isObject() && args[1].toObject()->isFunction()) {
                 se::Value jsThis(s.thisObject());
-                se::Value jsFunc(args[3]);
+                se::Value jsFunc(args[1]);
                 jsThis.toObject()->attachObject(jsFunc.toObject());
-                auto lambda = [=](MapData* larg0) -> void {
+                auto lambda = [=](bool larg0) -> void {
                     se::ScriptEngine::getInstance()->clearException();
                     se::AutoHandleScope hs;
 
                     CC_UNUSED bool ok = true;
-                    se::ValueArray rargs;
-                    rargs.resize(1);
-                    ok &= mapdata_to_seval(larg0, &rargs[0]);
+                    se::ValueArray args;
+                    args.resize(1);
+                    ok &= boolean_to_seval(larg0, &args[0]);
                     se::Value rval;
                     se::Object* thisObj = jsThis.isObject() ? jsThis.toObject() : nullptr;
                     se::Object* funcObj = jsFunc.toObject();
-                    bool succeed = funcObj->call(rargs, thisObj, &rval);
+                    bool succeed = funcObj->call(args, thisObj, &rval);
                     if (!succeed) {
                         se::ScriptEngine::getInstance()->clearException();
                     }
                 };
-                arg3 = lambda;
+                arg1 = lambda;
             } else {
                 ok = false;
             }
@@ -1721,7 +1676,7 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
 
         SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments");
 
-        cobj->createMap(arg0, arg1, arg2, arg3);
+        cobj->createMap(arg0, arg1);
         return true;
     }
     SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 2);
@@ -1747,6 +1702,7 @@ bool register_my_map_creator(se::Object* obj) {
     cls->defineFunction("addMapEleBase", _SE(jsb_my_MapCreator_addMapEleBase));
     cls->defineFunction("addMapEle", _SE(jsb_my_MapCreator_addMapEle));
     cls->defineFunction("addMapEleIndex", _SE(jsb_my_MapCreator_addMapEleIndex));
+    cls->defineFunction("addMapTemp", _SE(jsb_my_MapCreator_addMapTemp));
     cls->defineFunction("createMap", _SE(jsb_my_MapCreator_createMap));
     cls->install();
     JSBClassType::registerClass<MapCreator>(cls);
