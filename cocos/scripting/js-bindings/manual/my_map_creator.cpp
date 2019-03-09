@@ -197,7 +197,7 @@ public:
     virtual ~PipeEndPoint();
 
     int holeIndex;
-    HoleDir dir;
+    int dir;
     int tX;
     int tY;
 };
@@ -269,9 +269,12 @@ public:
     int tW;
     int tH;
 
-    std::vector<std::vector<int>> holeTMap;
+    std::vector<std::vector<int>> thumbMap;
     std::vector<HoleData*> holeVec;
     std::vector<PipeData*> pipeVec;
+
+    // 用于扩展地图能表达的数据，thumbMap上会有此变量的index，从而获取到对应的点包含哪些pipe的位置
+    std::vector<std::pair<int, int>> tMapPipeData;
 
     int curSceneKey;
     MapTemp* w_curTemp; // 弱引用的当前地图模板
@@ -283,6 +286,7 @@ public:
 #define RA_HOLE_ID_BEGIN (2000)
 #define FI_EDGE_ID_BEGIN (100)
 #define RA_EDGE_ID_BEGIN (200)
+#define PIPE_ID_BEGIN (10000)
 
 class MapCreator {
 public:
@@ -553,9 +557,8 @@ void MapCreator::initTmpData(MapTmpData* tmpData) {
     tmpData->tW = (int)(tmpData->w_curTemp->ra[0].size());
     tmpData->tH = (int)(tmpData->w_curTemp->ra.size());
 
-    // 初始化一个矩阵，记录已经使用了的block，未使用为0，使用了为1
     std::vector<std::vector<int>> copyRa(tmpData->w_curTemp->ra);
-    tmpData->holeTMap = std::move(copyRa);
+    tmpData->thumbMap = std::move(copyRa);
 }
 
 // 在地图上填数据 （无边缘检测）
@@ -591,7 +594,7 @@ static void setBlankMap(std::vector<std::vector<int>> &data, int beginX, int beg
 void MapCreator::digHole(MapTmpData* tmpData) {
     int mapTW = tmpData->tW;
     int mapTH = tmpData->tH;
-    auto holeTMap = std::move(tmpData->holeTMap); // 右值引用，拉出来做处理，之后再放回去
+    auto holeTMap = std::move(tmpData->thumbMap); // 右值引用，拉出来做处理，之后再放回去
 
     int mapTMax = mapTW * mapTH;
     float holeRatio = 0.3; //llytodo 要从js传入
@@ -759,8 +762,8 @@ void MapCreator::digHole(MapTmpData* tmpData) {
         holeIndex++;
     }
 
-    tmpData->holeTMap = std::move(holeTMap); // 处理后的数据放回原处
-    printVecVec(tmpData->holeTMap);
+    tmpData->thumbMap = std::move(holeTMap); // 处理后的数据放回原处
+    printVecVec(tmpData->thumbMap);
 }
 
 static HoleDirOffsetType calcHoleDirOffsetType(float myPos, float myHalf, float anoPos, float anoHalf) {
@@ -978,17 +981,9 @@ static int getDoorDirFromStraightHoleDir(HoleDir dir) {
         case HoleDir::rig_mid: return DOOR_RIGHT;
         case HoleDir::mid_top: return DOOR_UP;
         case HoleDir::mid_bot: return DOOR_DOWN;
-        default: return 0; // 不会到这里
-    }
-}
-
-static HoleDir getHoleDirFromDoorDir(int dir) {
-    switch (dir) {
-        case DOOR_LEFT: return HoleDir::lef_mid;
-        case DOOR_RIGHT: return HoleDir::rig_mid;
-        case DOOR_UP: return HoleDir::mid_top;
-        case DOOR_DOWN: return HoleDir::mid_bot;
-        default: return HoleDir::lef_mid; // 不会到这里
+        default:
+            throw "wrong StraightHoleDir";
+            return 0; // 不会到这里
     }
 }
 
@@ -1000,10 +995,11 @@ static PipeEndPoint* createPipeEndPoint(HoleData* hole, HoleDir dir) {
     if (hole->type == HoleType::fi) { // 固定块如果有不能连接的方向，则用另一个方向替代
         int ddir = getDoorDirFromStraightHoleDir(getStraightHoleDir(dir));
         int substitutesDir = hole->substitutesMap.find(ddir)->second; // 必定存在
-        endPoint->dir = getHoleDirFromDoorDir(substitutesDir);
+        endPoint->dir = substitutesDir;
     } else {
-        endPoint->dir = getStraightHoleDir(dir);
-        hole->doorDir |= getDoorDirFromStraightHoleDir(endPoint->dir);
+        HoleDir strgightDir = getStraightHoleDir(dir);
+        endPoint->dir = getDoorDirFromStraightHoleDir(strgightDir);
+        hole->doorDir |= endPoint->dir;
     }
 
     return endPoint;
@@ -1161,12 +1157,80 @@ void MapCreator::assignEleToHole(MapTmpData* tmpData) {
     }
 }
 
+static int getDoorDirIndexFromStraightDoorDir(int dir) {
+    switch (dir) {
+        case DOOR_UP: return 0;
+        case DOOR_DOWN: return 1;
+        case DOOR_LEFT: return 2;
+        case DOOR_RIGHT: return 3;
+        default:
+            throw "wrong StraightDoorDir";
+            return -1; // 不会到这里
+    }
+}
+
+static void getEndPointPosition(MapTmpData* tmpData, PipeEndPoint* endPoint, int* tX, int* tY) {
+    HoleData* hole = tmpData->holeVec[endPoint->holeIndex];
+
+    int doorDirIndex = getDoorDirIndexFromStraightDoorDir(endPoint->dir);
+    std::vector<int> doorPosList = hole->ele->door[doorDirIndex];
+
+    // 随机选择一个门的位置
+    int doorIndex = getRandom(0, (int)doorPosList.size() - 1);
+    int doorPos = doorPosList[doorIndex];
+
+    // 根据pipe终端的方向不同（也就是对应hole的方向），已经hole的位置，确定终端的方向
+    switch (endPoint->dir) {
+        case DOOR_UP:
+            *tX = hole->tX + doorPos;
+            *tY = hole->tY - 1;
+            break;
+        case DOOR_DOWN:
+            *tX = hole->tX + doorPos;
+            *tY = hole->tY + hole->tH;
+            break;
+        case DOOR_LEFT:
+            *tX = hole->tX - 1;
+            *tY = hole->tY + doorPos;
+            break;
+        case DOOR_RIGHT:
+            *tX = hole->tX + hole->tW;
+            *tY = hole->tY + doorPos;
+            break;
+        default:
+            throw "wrong PipeEndPoint dir";
+            break;
+    }
+
+    endPoint->tX = *tX;
+    endPoint->tY = *tY;
+}
+
 void MapCreator::digPipe(MapTmpData* tmpData) {
     // 遍历所有管道，根据其两端门的位置，产生管道坐标
+    int pipeIndex = -1;
     for(PipeData* pipe: tmpData->pipeVec) {
+        pipeIndex++;
+
         PipeEndPoint* endPoint0 = pipe->endPoints[0];
         PipeEndPoint* endPoint1 = pipe->endPoints[1];
 
+        int tX0, tY0, tX1, tY1;
+        getEndPointPosition(tmpData, endPoint0, &tX0, &tY0);
+        getEndPointPosition(tmpData, endPoint1, &tX1, &tY1);
+
+        // 根据thumb地图，从一个终端连到另一个终端
+        std::vector<std::vector<int>> thumbMap = std::move(tmpData->thumbMap); // 右值引用，拉出来使用
+
+        int curX = tX0;
+        int curY = tY0;
+        int curPosIndex = 0;
+
+        std::pair<int, int> p = std::pair<int, int>(pipeIndex, curPosIndex);
+        tmpData->tMapPipeData.push_back(p);
+        int curPipeDataIndex = (int)tmpData->tMapPipeData.size() - 1;
+
+        thumbMap[curY][curX] = PIPE_ID_BEGIN + curPipeDataIndex;
     }
 }
 
