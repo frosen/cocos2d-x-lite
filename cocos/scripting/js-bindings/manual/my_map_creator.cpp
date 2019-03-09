@@ -1113,7 +1113,7 @@ void MapCreator::connectExtraHole(MapTmpData* tmpData) {
 
 static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
     bool doorTypes[MAX_DOOR_TYPE] = { 0 }; // 反向获取，true为不可以的类型
-    if ((doorDir | DOOR_UP) == 1) {
+    if ((doorDir & DOOR_UP) == DOOR_UP) {
         doorTypes[(int)EleDoorType::lef] = true;
         doorTypes[(int)EleDoorType::rig] = true;
         doorTypes[(int)EleDoorType::bot] = true;
@@ -1123,7 +1123,7 @@ static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
         doorTypes[(int)EleDoorType::rig_bot_lef] = true;
     }
 
-    if ((doorDir | DOOR_DOWN) == 1) {
+    if ((doorDir & DOOR_DOWN) == DOOR_DOWN) {
         doorTypes[(int)EleDoorType::lef] = true;
         doorTypes[(int)EleDoorType::rig] = true;
         doorTypes[(int)EleDoorType::top] = true;
@@ -1133,7 +1133,7 @@ static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
         doorTypes[(int)EleDoorType::lef_top_rig] = true;
     }
 
-    if ((doorDir | DOOR_LEFT) == 1) {
+    if ((doorDir & DOOR_LEFT) == DOOR_LEFT) {
         doorTypes[(int)EleDoorType::top] = true;
         doorTypes[(int)EleDoorType::rig] = true;
         doorTypes[(int)EleDoorType::bot] = true;
@@ -1143,7 +1143,7 @@ static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
         doorTypes[(int)EleDoorType::top_rig_bot] = true;
     }
 
-    if ((doorDir | DOOR_RIGHT) == 0) {
+    if ((doorDir & DOOR_RIGHT) == DOOR_RIGHT) {
         doorTypes[(int)EleDoorType::top] = true;
         doorTypes[(int)EleDoorType::lef] = true;
         doorTypes[(int)EleDoorType::bot] = true;
@@ -1286,7 +1286,7 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     ret->usingTYs = usingTYs.toInt32();
 
     // door
-    ok = obj->getProperty("door", &door);
+    ok = obj->getProperty("doorType", &door);
     SE_PRECONDITION2(ok && door.isObject(), false, "error door");
 
     se::Object* doorobj = door.toObject();
