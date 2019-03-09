@@ -40,30 +40,12 @@ static void printVecVec(std::vector<std::vector<int>> &vecvec) {
     printf("^^^^^^^^^^^^^^^\n");
 }
 
-static std::vector<std::vector<int>> createVecVec() {
-    std::vector<std::vector<int> > cc;
-    std::vector<int> c[20];
-    c[0] = {    0,     0,     0,     0,     0,     0,  2003, 20003, 20003, 20003, 20003, 20003, 20003,  1000, 10000, 10000};
-    c[1] = { 2002,  2002,  2002,  2002,  2002,     0,  2003, 20003, 20003, 20003, 20003, 20003, 20003,  1000, 10000, 10000};
-    c[2] = {20002, 20002, 20002, 20002,  2002,     0,  2003, 20003, 20003, 20003, 20003, 20003, 20003,  1000,  1000,  1000};
-    c[3] = {20002, 20002, 20002, 20002,  2002,     0,  2003,  2003,  2003,  2003,  2003,  2003,  2003,  2003,     0,     0};
-    c[4] = {20002, 20002, 20002, 20002,  2002,     0,     0,     0,     0,     0,     0,     0,  2004,  2004,  2004,  2004};
-    c[5] = { 1001,  1001,  1001,  2002,  2002,     0,     0,     0,     0,     0,     0,     0,  2004, 20004, 20004, 20004};
-    c[6] = {10001, 10001,  1001,     0,     0,     0,     0,     0,     0,     0,     0,     0,  2004, 20004, 20004, 20004};
-    c[7] = {10001, 10001,  1001,     0,     0,     0,     0,     0,     0,     0,     0,     0,  2004, 20004, 20004, 20004};
-
-    for (auto _c : c) {
-        if (_c.size() == 0) break;
-        cc.push_back(_c);
-    }
-
-    return cc;
-}
-
 // 获取随机数 -----------------------------------------------------------
 
 static void getReadyForRandom() {
-    srand((int)time(0));
+    int seed = (int)time(0);
+    printf("s = %d\n", seed);
+    srand(1552108943);
 }
 
 static inline int getRandom(int from, int to) {
@@ -228,6 +210,10 @@ public:
 
     PipeEndPoint* endPoints[2];
 
+    // 管道的坐标
+    std::vector<int> tXs;
+    std::vector<int> tYs;
+
     bool connected; // 默认为true，但有的管子可以不通
 };
 
@@ -280,8 +266,8 @@ public:
     MapTmpData();
     virtual ~MapTmpData();
 
-    int blockW;
-    int blockH;
+    int tW;
+    int tH;
 
     std::vector<std::vector<int>> holeTMap;
     std::vector<HoleData*> holeVec;
@@ -326,6 +312,7 @@ protected:
     void connectAllHole(MapTmpData* tmpData);
     void connectExtraHole(MapTmpData* tmpData);
     void assignEleToHole(MapTmpData* tmpData);
+    void digPipe(MapTmpData* tmpData);
 
 private:
     bool _creating;
@@ -563,8 +550,8 @@ void MapCreator::threadLoop() {
 }
 
 void MapCreator::initTmpData(MapTmpData* tmpData) {
-    tmpData->blockW = (int)(tmpData->w_curTemp->ra[0].size());
-    tmpData->blockH = (int)(tmpData->w_curTemp->ra.size());
+    tmpData->tW = (int)(tmpData->w_curTemp->ra[0].size());
+    tmpData->tH = (int)(tmpData->w_curTemp->ra.size());
 
     // 初始化一个矩阵，记录已经使用了的block，未使用为0，使用了为1
     std::vector<std::vector<int>> copyRa(tmpData->w_curTemp->ra);
@@ -602,13 +589,13 @@ static void setBlankMap(std::vector<std::vector<int>> &data, int beginX, int beg
 }
 
 void MapCreator::digHole(MapTmpData* tmpData) {
-    int blockW = tmpData->blockW;
-    int blockH = tmpData->blockH;
-    auto holeTMap = tmpData->holeTMap;
+    int mapTW = tmpData->tW;
+    int mapTH = tmpData->tH;
+    auto holeTMap = std::move(tmpData->holeTMap); // 右值引用，拉出来做处理，之后再放回去
 
-    int blockMax = tmpData->blockW * tmpData->blockH;
+    int mapTMax = mapTW * mapTH;
     float holeRatio = 0.3; //llytodo 要从js传入
-    int holeBlockSize = (int)((float)blockMax * holeRatio);
+    int holeBlockSize = (int)((float)mapTMax * holeRatio);
 
     int holeIndex = 0;
 
@@ -635,28 +622,28 @@ void MapCreator::digHole(MapTmpData* tmpData) {
         creatingDir *= -1;
 
         // 随机获取一个位置
-        int tx = getRandom(0, blockW - 1);
-        int ty = getRandom(0, blockH - 1);
+        int tx = getRandom(0, mapTW - 1);
+        int ty = getRandom(0, mapTH - 1);
         int value = holeTMap[ty][tx];
 
         if (value != 0) { // 如果所取位置已经使用过，则获取另一个位置，但保证尽量在有限的随机次数内完成
-            tx = blockW - 1 - tx; // 从对称位置开始
-            ty = blockH - 1 - ty;
+            tx = mapTW - 1 - tx; // 从对称位置开始
+            ty = mapTH - 1 - ty;
             bool needContinue = false;
             while (true) {
                 tx += creatingDir;
                 if (creatingDir > 0) {
-                    if (tx >= blockW) {
+                    if (tx >= mapTW) {
                         tx = 0;
                         ty += creatingDir;
-                        if (ty >= blockH) {
+                        if (ty >= mapTH) {
                             needContinue = true;
                             break;
                         }
                     }
                 } else {
                     if (tx < 0) {
-                        tx = blockW - 1;
+                        tx = mapTW - 1;
                         ty += creatingDir;
                         if (ty < 0) {
                             needContinue = true;
@@ -724,7 +711,7 @@ void MapCreator::digHole(MapTmpData* tmpData) {
         // 尽量范围不小于3
         if (holeTW < 3) {
             while (true) {
-                if (creatingDir > 0 ? tx == 0 : tx == blockW - 1) break;
+                if (creatingDir > 0 ? tx == 0 : tx == mapTW - 1) break;
 
                 bool canExtand = true;
                 for (int i = 0; i < holeTH; i++) {
@@ -742,7 +729,7 @@ void MapCreator::digHole(MapTmpData* tmpData) {
 
         if (holeTH < 3) {
             while (true) {
-                if (creatingDir > 0 ? ty == 0 : ty == blockH - 1) break;
+                if (creatingDir > 0 ? ty == 0 : ty == mapTH - 1) break;
 
                 bool canExtand = true;
                 for (int i = 0; i < holeTW; i++) {
@@ -772,7 +759,8 @@ void MapCreator::digHole(MapTmpData* tmpData) {
         holeIndex++;
     }
 
-    printVecVec(holeTMap);
+    tmpData->holeTMap = std::move(holeTMap); // 处理后的数据放回原处
+    printVecVec(tmpData->holeTMap);
 }
 
 static HoleDirOffsetType calcHoleDirOffsetType(float myPos, float myHalf, float anoPos, float anoHalf) {
@@ -1167,10 +1155,18 @@ void MapCreator::assignEleToHole(MapTmpData* tmpData) {
         EleDoorType eleDoorType = getEleDirTypesFromHoleDoorDir(hole->doorDir);
 
         std::vector<int> eleList = list->list[hole->tW - 1][hole->tH - 1][(int)eleDoorType];
-
         int index = getRandom(0, (int)eleList.size() - 1);
         int eleIndex = eleList[index];
         hole->ele = this->_mapEleVec[eleIndex];
+    }
+}
+
+void MapCreator::digPipe(MapTmpData* tmpData) {
+    // 遍历所有管道，根据其两端门的位置，产生管道坐标
+    for(PipeData* pipe: tmpData->pipeVec) {
+        PipeEndPoint* endPoint0 = pipe->endPoints[0];
+        PipeEndPoint* endPoint1 = pipe->endPoints[1];
+
     }
 }
 
