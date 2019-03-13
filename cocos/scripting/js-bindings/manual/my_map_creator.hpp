@@ -24,7 +24,7 @@ bool register_my_map_creator(se::Object* obj);
 SE_DECLARE_FUNC(jsb_my_MapCreator_getInstance);
 SE_DECLARE_FUNC(jsb_my_MapCreator_addMapEleBase);
 SE_DECLARE_FUNC(jsb_my_MapCreator_addMapEle);
-SE_DECLARE_FUNC(jsb_my_MapCreator_addMapEleIndex);
+SE_DECLARE_FUNC(jsb_my_MapCreator_addMapEleIndexs);
 SE_DECLARE_FUNC(jsb_my_MapCreator_addMapTemp);
 SE_DECLARE_FUNC(jsb_my_MapCreator_createMap);
 
