@@ -43,8 +43,15 @@ static void printVecVec(std::vector<std::vector<int>> &vecvec) {
 // 获取随机数 -----------------------------------------------------------
 
 static void getReadyForRandom() {
-    int seed = (int)time(0);
-    printf("s = %d\n", seed);
+    int timeSeed = (int)time(0);
+
+    int* p = new int(627);
+    void* pp = &p;
+    int ptrSeed = *(int*)pp;
+    delete p;
+
+    int seed = abs(timeSeed - abs(ptrSeed));
+    printf("s = %d (%d, %d)\n", seed, timeSeed, ptrSeed);
     srand(1552108943);
 }
 
@@ -252,6 +259,7 @@ public:
 
     HoleType type;
     int index; // 在vec中的位置
+    int fiIndex; // 如果是fi，则其在fi list中的位置
 
     bool inCircuit; // 是否在通路中
 
@@ -276,7 +284,7 @@ public:
     std::vector<PipeData*> pipeVec;
 
     // 用于扩展地图能表达的数据，thumbMap上会有此变量的index，从而获取到对应的点包含哪些pipe的位置
-    std::vector<std::pair<int, int>> tMapPipeData;
+    std::vector<std::vector<std::pair<int, int>>> tMapPipeData;
 
     int curSceneKey;
     MapTemp* w_curTemp; // 弱引用的当前地图模板
@@ -421,7 +429,7 @@ HoleRelation::~HoleRelation() {
 // ---------------
 
 HoleData::HoleData(int itX, int itY, int itW, int itH, HoleType itype, int iindex):
-inCircuit(false), doorDir(0), tX(itX), tY(itY), tW(itW), tH(itH), type(itype), index(iindex) {
+inCircuit(false), doorDir(0), tX(itX), tY(itY), tW(itW), tH(itH), type(itype), index(iindex), fiIndex(-1) {
 }
 
 HoleData::~HoleData() {
@@ -487,8 +495,8 @@ void MapCreator::addMapEleIndexs(const int tW, const int tH, const int doorType,
     assert(0 <= tW && tW < MAX_R_TW);
     assert(0 <= tH && tH < MAX_R_TH);
     assert(sceneKey == 0 || sceneKey == 1); // 0,1 分别表示用在场景1-0的和用在其他场景的
-    auto v = _mapEleList.list[tW][tH][doorType][sceneKey];
-    v.insert(v.end(), eleIndexs.begin(), eleIndexs.end());
+    auto ptr = &_mapEleList.list[tW][tH][doorType][sceneKey];
+    ptr->insert(ptr->end(), eleIndexs.begin(), eleIndexs.end());
 }
 
 void MapCreator::addMapTemp(const int sceneKey, const MapTemp* mapTemp) {
@@ -531,6 +539,7 @@ void MapCreator::threadLoop() {
         connectAllHole(tmpData);
         connectExtraHole(tmpData);
         assignEleToHole(tmpData);
+        digPipe(tmpData);
 
         // mapData 保存到本地 todo
 
@@ -597,11 +606,14 @@ void MapCreator::digHole(MapTmpData* tmpData) {
     int holeIndex = 0;
 
     // 处理固定块 并把固定块镶边
+    int fiIndex = -1;
     for (FiTemp* fi : tmpData->w_curTemp->fis) {
+        fiIndex++;
         setMap(holeTMap, fi->tX, fi->tY, fi->tW, fi->tH, FI_HOLE_ID_BEGIN + holeIndex);
         setBlankMap(holeTMap, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + holeIndex); // 镶边
 
         auto holeData = new HoleData(fi->tX, fi->tY, fi->tW, fi->tH, HoleType::fi, holeIndex);
+        holeData->fiIndex = fiIndex;
         if (fi->door[0].size() > 0) holeData->doorDir |= DOOR_UP;
         if (fi->door[1].size() > 0) holeData->doorDir |= DOOR_DOWN;
         if (fi->door[2].size() > 0) holeData->doorDir |= DOOR_LEFT;
@@ -1167,7 +1179,12 @@ static void getEndPointPosition(MapTmpData* tmpData, PipeEndPoint* endPoint, int
     HoleData* hole = tmpData->holeVec[endPoint->holeIndex];
 
     int doorDirIndex = getDoorDirIndexFromStraightDoorDir(endPoint->dir);
-    std::vector<int> doorPosList = hole->ele->door[doorDirIndex];
+    std::vector<int> doorPosList;
+    if (hole->type == HoleType::fi) {
+        doorPosList = tmpData->w_curTemp->fis[hole->fiIndex]->door[doorDirIndex];
+    } else {
+        doorPosList = hole->ele->door[doorDirIndex];
+    }
 
     // 随机选择一个门的位置
     int doorIndex = getRandom(0, (int)doorPosList.size() - 1);
@@ -1200,7 +1217,26 @@ static void getEndPointPosition(MapTmpData* tmpData, PipeEndPoint* endPoint, int
     endPoint->tY = *tY;
 }
 
+static void savePipePos(MapTmpData* tmpData, std::vector<std::vector<int>> &thumbMap, int curX, int curY, int pipeIndex, int curPosIndex) {
+    std::pair<int, int> p = std::pair<int, int>(pipeIndex, curPosIndex);
+
+    int curThumb = thumbMap[curY][curX];
+    if (curThumb >= PIPE_ID_BEGIN) {
+        int pipeDataIndex = curThumb - PIPE_ID_BEGIN;
+        tmpData->tMapPipeData[pipeDataIndex].push_back(p);
+
+    } else {
+        std::vector<std::pair<int, int>> vecP;
+        vecP.push_back(p);
+        tmpData->tMapPipeData.push_back(vecP);
+        int curPipeDataIndex = (int)tmpData->tMapPipeData.size() - 1;
+        thumbMap[curY][curX] = PIPE_ID_BEGIN + curPipeDataIndex;
+    }
+}
+
 void MapCreator::digPipe(MapTmpData* tmpData) {
+    std::vector<std::vector<int>> thumbMap = std::move(tmpData->thumbMap); // 右值引用，拉出来使用
+
     // 遍历所有管道，根据其两端门的位置，产生管道坐标
     int pipeIndex = -1;
     for(PipeData* pipe: tmpData->pipeVec) {
@@ -1214,18 +1250,55 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
         getEndPointPosition(tmpData, endPoint1, &tX1, &tY1);
 
         // 根据thumb地图，从一个终端连到另一个终端
-        std::vector<std::vector<int>> thumbMap = std::move(tmpData->thumbMap); // 右值引用，拉出来使用
+        int xDir = tX0 < tX1 ? 1 : (tX0 == tX1 ? 0 : -1);
+        int yDir = tY0 < tY1 ? 1 : (tY0 == tY1 ? 0 : -1);
 
         int curX = tX0;
         int curY = tY0;
-        int curPosIndex = 0;
+        int curPosIndex = -1;
 
-        std::pair<int, int> p = std::pair<int, int>(pipeIndex, curPosIndex);
-        tmpData->tMapPipeData.push_back(p);
-        int curPipeDataIndex = (int)tmpData->tMapPipeData.size() - 1;
+        while (true) {
+            curPosIndex++;
+            savePipePos(tmpData, thumbMap, curX, curY, pipeIndex, curPosIndex);
 
-        thumbMap[curY][curX] = PIPE_ID_BEGIN + curPipeDataIndex;
+            if (curX == tX1 && curY == tY1) {
+                break; // 连接到了另一个终端
+            }
+
+            // 选择一个方向进行移动
+            if (xDir == 0) {
+                curY++;
+            } else if (yDir == 0) {
+                curX++;
+            } else {
+                int xMove, yMove, anoXMove, anoYMove;
+                if (getRandom(0, 1) == 1) {
+                    xMove = xDir; yMove = 0; anoXMove = 0; anoYMove = yDir;
+                } else {
+                    xMove = 0; yMove = yDir; anoXMove = xDir; anoYMove = 0;
+                }
+
+                int nextX = curX + xMove;
+                int nextY = curY + yMove;
+
+                // 如果移动的一边是hole，则用另一边
+                int nextThumb = thumbMap[nextX][nextY];
+                if (nextThumb >= FI_HOLE_ID_BEGIN && nextThumb < PIPE_ID_BEGIN) {
+                    nextX = curX + anoXMove;
+                    nextY = curY + anoYMove;
+
+                    int anoNextThumb = thumbMap[nextX][nextY];
+                    assert(!(anoNextThumb >= FI_HOLE_ID_BEGIN && anoNextThumb < PIPE_ID_BEGIN)); // 不可能两边都是hole
+                }
+
+                curX = nextX;
+                curY = nextY;
+            }
+        }
     }
+
+    tmpData->thumbMap = std::move(thumbMap); // 处理后的数据放回原处
+    printVecVec(tmpData->thumbMap);
 }
 
 MY_SPACE_END
