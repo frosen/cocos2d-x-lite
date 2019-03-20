@@ -42,9 +42,17 @@ static void printVecVec(std::vector<std::vector<int>> &vecvec) {
 
 // 获取随机数 -----------------------------------------------------------
 
+static std::default_random_engine* randomEngine = nullptr;
+
 static void getReadyForRandom() {
+    if (!randomEngine) {
+        randomEngine = new default_random_engine();
+    }
+
+    // 用不确定的时间做seed
     int timeSeed = (int)time(0);
 
+    // 用不确定的内存地址做seed
     int* p = new int(627);
     void* pp = &p;
     int ptrSeed = *(int*)pp;
@@ -52,11 +60,12 @@ static void getReadyForRandom() {
 
     int seed = abs(timeSeed - abs(ptrSeed));
     printf("s = %d (%d, %d)\n", seed, timeSeed, ptrSeed);
-    srand(1552108943);
+
+    randomEngine->seed(1552108943);
 }
 
 static inline int getRandom(int from, int to) {
-    return (rand() % (to - from + 1)) + from;
+    return ((*randomEngine)() % (to - from + 1)) + from;
 }
 
 // 数据模型 ---------------------------------------------------------------
