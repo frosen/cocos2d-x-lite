@@ -46,7 +46,7 @@ static std::default_random_engine* randomEngine = nullptr;
 
 static void getReadyForRandom() {
     if (!randomEngine) {
-        randomEngine = new default_random_engine();
+        randomEngine = new std::default_random_engine();
     }
 
     // 用不确定的时间做seed
@@ -1245,6 +1245,8 @@ static void savePipePos(MapTmpData* tmpData, std::vector<std::vector<int>> &thum
 
 void MapCreator::digPipe(MapTmpData* tmpData) {
     std::vector<std::vector<int>> thumbMap = std::move(tmpData->thumbMap); // 右值引用，拉出来使用
+    int thumbMapWidth = (int)thumbMap[0].size();
+    int thumbMapHeight = (int)thumbMap.size();
 
     // 遍历所有管道，根据其两端门的位置，产生管道坐标
     int pipeIndex = -1;
@@ -1257,11 +1259,8 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
         int tX0, tY0, tX1, tY1;
         getEndPointPosition(tmpData, endPoint0, &tX0, &tY0);
         getEndPointPosition(tmpData, endPoint1, &tX1, &tY1);
-
+        
         // 根据thumb地图，从一个终端连到另一个终端
-        int xDir = tX0 < tX1 ? 1 : (tX0 == tX1 ? 0 : -1);
-        int yDir = tY0 < tY1 ? 1 : (tY0 == tY1 ? 0 : -1);
-
         int curX = tX0;
         int curY = tY0;
         int curPosIndex = -1;
@@ -1274,11 +1273,14 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
                 break; // 连接到了另一个终端
             }
 
+            int xDir = curX < tX1 ? 1 : (curX == tX1 ? 0 : -1);
+            int yDir = curY < tY1 ? 1 : (curY == tY1 ? 0 : -1);
+
             // 选择一个方向进行移动
             if (xDir == 0) {
-                curY++;
+                curY += yDir;
             } else if (yDir == 0) {
-                curX++;
+                curX += xDir;
             } else {
                 int xMove, yMove, anoXMove, anoYMove;
                 if (getRandom(0, 1) == 1) {
@@ -1291,13 +1293,15 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
                 int nextY = curY + yMove;
 
                 // 如果移动的一边是hole，则用另一边
-                int nextThumb = thumbMap[nextX][nextY];
-                if (nextThumb >= FI_HOLE_ID_BEGIN && nextThumb < PIPE_ID_BEGIN) {
+                if (nextX < 0 || thumbMapWidth <= nextX || nextY < 0 || thumbMapHeight <= nextY) {
                     nextX = curX + anoXMove;
                     nextY = curY + anoYMove;
-
-                    int anoNextThumb = thumbMap[nextX][nextY];
-                    assert(!(anoNextThumb >= FI_HOLE_ID_BEGIN && anoNextThumb < PIPE_ID_BEGIN)); // 不可能两边都是hole
+                } else {
+                    int nextThumb = thumbMap[nextY][nextX];
+                    if (nextThumb >= FI_HOLE_ID_BEGIN && nextThumb < PIPE_ID_BEGIN) {
+                        nextX = curX + anoXMove;
+                        nextY = curY + anoYMove;
+                    }
                 }
 
                 curX = nextX;
