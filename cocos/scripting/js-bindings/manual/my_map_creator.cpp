@@ -15,6 +15,10 @@
 #include "cocos2d.h"
 #include "scripting/js-bindings/manual/BaseJSAction.h"
 
+#include "json/document.h"
+#include "json/stringbuffer.h"
+#include "json/writer.h"
+
 #define MY_SPACE_BEGIN   namespace my {
 #define MY_SPACE_END     }
 
@@ -172,10 +176,10 @@ public:
 
 // 要发送到js的数据 -----------------------------------------------------------
 
-class MapData {
+class FinalMapData {
 public:
-    MapData();
-    virtual ~MapData();
+    FinalMapData();
+    virtual ~FinalMapData();
 
     std::vector<std::vector<int>> te; // 地形
     std::vector<std::vector<int>> co; // 碰撞
@@ -232,6 +236,9 @@ public:
     std::vector<int> tXs;
     std::vector<int> tYs;
 
+    // 管道每节的方向
+    std::vector<int> dirs;
+
     bool connected; // 默认为true，但有的管子可以不通
 };
 
@@ -285,6 +292,8 @@ public:
     MapTmpData();
     virtual ~MapTmpData();
 
+    FinalMapData* finalMapData;
+
     int tW;
     int tH;
 
@@ -336,6 +345,8 @@ protected:
     void connectExtraHole(MapTmpData* tmpData);
     void assignEleToHole(MapTmpData* tmpData);
     void digPipe(MapTmpData* tmpData);
+
+    void saveToJsonFile(MapTmpData* tmpData);
 
 private:
     bool _creating;
@@ -400,10 +411,10 @@ MapTemp::~MapTemp() {
 
 // ---------------
 
-MapData::MapData() {
+FinalMapData::FinalMapData() {
 }
 
-MapData::~MapData() {
+FinalMapData::~FinalMapData() {
 }
 
 // ---------------
@@ -448,6 +459,7 @@ HoleData::~HoleData() {
 }
 
 MapTmpData::MapTmpData() {
+    finalMapData = new FinalMapData();
 }
 
 MapTmpData::~MapTmpData() {
@@ -457,6 +469,8 @@ MapTmpData::~MapTmpData() {
     for (PipeData* pipe: pipeVec) {
         delete pipe;
     }
+
+    delete finalMapData;
 }
 
 // ---------------
@@ -537,7 +551,6 @@ void MapCreator::threadLoop() {
         log("begin to create map");
 
         MapTmpData* tmpData = new MapTmpData();
-        MapData* mapData = new MapData();
 
         tmpData->curSceneKey = _curSceneKey;
         tmpData->w_curTemp = _mapTempMap[_curSceneKey];
@@ -551,9 +564,9 @@ void MapCreator::threadLoop() {
         digPipe(tmpData);
 
         // mapData 保存到本地 todo
+        saveToJsonFile(tmpData);
 
         // 释放
-        delete mapData;
         delete tmpData;
 
         // 结束
@@ -966,7 +979,7 @@ void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
     }
 }
 
-static HoleDir getOppositeDir(HoleDir dir) {
+static HoleDir getOppositeHoleDir(HoleDir dir) {
     switch (dir) {
         case HoleDir::lef_mid: return HoleDir::rig_mid;
         case HoleDir::rig_mid: return HoleDir::lef_mid;
@@ -1024,7 +1037,7 @@ static PipeData* createPipe(MapTmpData* tmpData, HoleRelation* relation) {
     HoleData* my = tmpData->holeVec[relation->myHoleIndex];
     HoleData* another = tmpData->holeVec[relation->anoHoleIndex];
     HoleDir dir = relation->dir;
-    HoleDir oppositeDir = getOppositeDir(relation->dir);
+    HoleDir oppositeDir = getOppositeHoleDir(relation->dir);
 
     PipeData* pipe = new PipeData();
     pipe->endPoints[0] = createPipeEndPoint(my, dir);
@@ -1226,20 +1239,15 @@ static void getEndPointPosition(MapTmpData* tmpData, PipeEndPoint* endPoint, int
     endPoint->tY = *tY;
 }
 
-static void savePipePos(MapTmpData* tmpData, std::vector<std::vector<int>> &thumbMap, int curX, int curY, int pipeIndex, int curPosIndex) {
-    std::pair<int, int> p = std::pair<int, int>(pipeIndex, curPosIndex);
-
-    int curThumb = thumbMap[curY][curX];
-    if (curThumb >= PIPE_ID_BEGIN) {
-        int pipeDataIndex = curThumb - PIPE_ID_BEGIN;
-        tmpData->tMapPipeData[pipeDataIndex].push_back(p);
-
-    } else {
-        std::vector<std::pair<int, int>> vecP;
-        vecP.push_back(p);
-        tmpData->tMapPipeData.push_back(vecP);
-        int curPipeDataIndex = (int)tmpData->tMapPipeData.size() - 1;
-        thumbMap[curY][curX] = PIPE_ID_BEGIN + curPipeDataIndex;
+static int getOppositeStraightDoorDir(int d) {
+    switch (d) {
+        case DOOR_UP: return DOOR_DOWN;
+        case DOOR_DOWN: return DOOR_UP;
+        case DOOR_LEFT: return DOOR_RIGHT;
+        case DOOR_RIGHT: return DOOR_LEFT;
+        default:
+            throw "wrong getOppositeStraightDoorDir param";
+            break;
     }
 }
 
@@ -1256,37 +1264,66 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
         PipeEndPoint* endPoint0 = pipe->endPoints[0];
         PipeEndPoint* endPoint1 = pipe->endPoints[1];
 
-        int tX0, tY0, tX1, tY1;
+        int tX0, tY0, tX1, tY1, curX, curY, finalX, finalY;
         getEndPointPosition(tmpData, endPoint0, &tX0, &tY0);
         getEndPointPosition(tmpData, endPoint1, &tX1, &tY1);
-        
-        // 根据thumb地图，从一个终端连到另一个终端
-        int curX = tX0;
-        int curY = tY0;
-        int curPosIndex = -1;
 
+        // 一定是y轴靠上的在前面，便于后面计算
+        if (tY0 <= tY1) {
+            curX = tX0; curY = tY0; finalX = tX1; finalY = tY1;
+        } else {
+            curX = tX1; curY = tY1; finalX = tX0; finalY = tY0;
+            pipe->endPoints[0] = endPoint1;
+            pipe->endPoints[1] = endPoint0;
+        }
+
+        // 根据thumb地图，从一个终端连到另一个终端
+        int curPosIndex = -1;
         while (true) {
             curPosIndex++;
-            savePipePos(tmpData, thumbMap, curX, curY, pipeIndex, curPosIndex);
 
-            if (curX == tX1 && curY == tY1) {
-                break; // 连接到了另一个终端
+            // 记录pipe的点位
+            std::pair<int, int> p = std::pair<int, int>(pipeIndex, curPosIndex);
+            int curThumb = thumbMap[curY][curX];
+            if (curThumb >= PIPE_ID_BEGIN) {
+                int pipeDataIndex = curThumb - PIPE_ID_BEGIN;
+                tmpData->tMapPipeData[pipeDataIndex].push_back(p);
+
+            } else {
+                std::vector<std::pair<int, int>> vecP;
+                vecP.push_back(p);
+                tmpData->tMapPipeData.push_back(vecP);
+                int curPipeDataIndex = (int)tmpData->tMapPipeData.size() - 1;
+                thumbMap[curY][curX] = PIPE_ID_BEGIN + curPipeDataIndex;
             }
 
-            int xDir = curX < tX1 ? 1 : (curX == tX1 ? 0 : -1);
-            int yDir = curY < tY1 ? 1 : (curY == tY1 ? 0 : -1);
+            pipe->tXs.push_back(curX);
+            pipe->tYs.push_back(curY);
+
+            // 连接到了另一个终端
+            if (curX == finalX && curY == finalY) {
+                int dir = getOppositeStraightDoorDir(pipe->endPoints[1]->dir);
+                pipe->dirs.push_back(dir);
+                break;
+            }
+
+            int xDir = curX < finalX ? 1 : (curX == finalX ? 0 : -1);
+            int yDir = curY < finalY ? 1 : (curY == finalY ? 0 : -1);
+            bool pDirIsX;
 
             // 选择一个方向进行移动
             if (xDir == 0) {
                 curY += yDir;
+                pDirIsX = false;
             } else if (yDir == 0) {
                 curX += xDir;
+                pDirIsX = true;
             } else {
                 int xMove, yMove, anoXMove, anoYMove;
                 if (getRandom(0, 1) == 1) {
-                    xMove = xDir; yMove = 0; anoXMove = 0; anoYMove = yDir;
+                    xMove = xDir; yMove = 0; anoXMove = 0; anoYMove = yDir; pDirIsX = true;
                 } else {
-                    xMove = 0; yMove = yDir; anoXMove = xDir; anoYMove = 0;
+                    xMove = 0; yMove = yDir; anoXMove = xDir; anoYMove = 0; pDirIsX = false;
                 }
 
                 int nextX = curX + xMove;
@@ -1296,22 +1333,59 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
                 if (nextX < 0 || thumbMapWidth <= nextX || nextY < 0 || thumbMapHeight <= nextY) {
                     nextX = curX + anoXMove;
                     nextY = curY + anoYMove;
+                    pDirIsX = !pDirIsX;
                 } else {
                     int nextThumb = thumbMap[nextY][nextX];
                     if (nextThumb >= FI_HOLE_ID_BEGIN && nextThumb < PIPE_ID_BEGIN) {
                         nextX = curX + anoXMove;
                         nextY = curY + anoYMove;
+                        pDirIsX = !pDirIsX;
                     }
                 }
-
-                curX = nextX;
-                curY = nextY;
+                curX = nextX; curY = nextY;
             }
+            int pDir = pDirIsX ? (xDir > 0 ? DOOR_RIGHT : DOOR_LEFT) : (yDir > 0 ? DOOR_DOWN : DOOR_UP);
+            pipe->dirs.push_back(pDir);
         }
     }
 
     tmpData->thumbMap = std::move(thumbMap); // 处理后的数据放回原处
     printVecVec(tmpData->thumbMap);
+}
+
+void MapCreator::saveToJsonFile(MapTmpData* tmpData) {
+    rapidjson::Document writedoc;
+    writedoc.SetObject();
+    rapidjson::Document::AllocatorType& allocator = writedoc.GetAllocator();
+    rapidjson::Value array(rapidjson::kArrayType);
+    rapidjson::Value object(rapidjson::kObjectType);
+
+    // json object 格式添加 “名称/值” 对
+    object.AddMember("inttag", 1, allocator);
+    object.AddMember("doubletag", 1.0, allocator);
+    object.AddMember("booltag", true, allocator);
+    object.AddMember("hellotag", "helloworld", allocator);
+
+    // json 加入数组
+    array.PushBack(11, allocator);
+
+    // json object 格式添加 “名称/值” 对
+    writedoc.AddMember("json", object, allocator);
+    writedoc.AddMember("array", array, allocator);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    writedoc.Accept(writer);
+
+    log("%s", buffer.GetString());
+
+//    auto path = FileUtils::getInstance()->getWritablePath();
+//    path.append("myhero.json");
+//    FILE* file = fopen(path.c_str(), "wb");
+//    if(file) {
+//        fputs(buffer.GetString(), file);
+//        fclose(file);
+//    }
 }
 
 MY_SPACE_END
