@@ -32,12 +32,16 @@ static int64_t getCurrentTime() {
     return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
-static void printVecVec(std::vector<std::vector<int>> &vecvec) {
+static void printVecVec(std::vector<std::vector<int>> &vecvec, int d = 5) {
     printf("vvvvvvvvvvvvvvv\n");
+
+    char c[1];
+    sprintf(c, "%d", d);
+    std::string format = std::string("%0") + c + "d, ";
     for (int i = 0; i < vecvec.size(); i++) {
         std::vector<int> vec = vecvec[i];
         for (int j = 0; j < vec.size(); j++) {
-            printf("%05d, ", vec[j]);
+            printf(format.c_str(), vec[j]);
         }
         printf("\n");
     }
@@ -345,6 +349,9 @@ protected:
     void connectExtraHole(MapTmpData* tmpData);
     void assignEleToHole(MapTmpData* tmpData);
     void digPipe(MapTmpData* tmpData);
+    
+    void calcSpines(MapTmpData* tmpData);
+    void createFinalMap(MapTmpData* tmpData);
 
     void saveToJsonFile(MapTmpData* tmpData);
 
@@ -562,6 +569,9 @@ void MapCreator::threadLoop() {
         connectExtraHole(tmpData);
         assignEleToHole(tmpData);
         digPipe(tmpData);
+        
+        calcSpines(tmpData);
+        createFinalMap(tmpData);
 
         // mapData 保存到本地 todo
         saveToJsonFile(tmpData);
@@ -584,6 +594,12 @@ void MapCreator::initTmpData(MapTmpData* tmpData) {
 
     std::vector<std::vector<int>> copyRa(tmpData->w_curTemp->ra);
     tmpData->thumbMap = std::move(copyRa);
+    
+    std::vector<std::vector<int>> copyFinalCo(tmpData->tH * 3 + 1, std::vector<int>(tmpData->tW * 3 + 2, 1));
+    tmpData->finalMapData->co =std::move(copyFinalCo);
+    
+    std::vector<std::vector<int>> copyFinalTe(tmpData->tH * 3 + 1, std::vector<int>(tmpData->tW * 3 + 2, 1));
+    tmpData->finalMapData->te =std::move(copyFinalTe);
 }
 
 // 在地图上填数据 （无边缘检测）
@@ -1351,6 +1367,82 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
 
     tmpData->thumbMap = std::move(thumbMap); // 处理后的数据放回原处
     printVecVec(tmpData->thumbMap);
+}
+
+void MapCreator::calcSpines(MapTmpData* tmpData) {
+    
+}
+
+static std::vector<int> getEveryDigit(const int num, const int size) {
+    std::vector<int> list(size, 0);
+    int checkNum = num;
+    for (int i = size - 1; i >= 0; i--) {
+        list[i] = checkNum % 10;
+        checkNum /= 10;
+    }
+    
+    return list;
+}
+
+void MapCreator::createFinalMap(MapTmpData* tmpData) {
+    // 添加fi
+    for (FiTemp* fi : tmpData->w_curTemp->fis) {
+        int beginFX = fi->rX;
+        int beginFY = fi->rY;
+        
+        for (int x = 0; x < fi->rW; x++) {
+            for (int y = 0; y < fi->rH; y++) {
+                int coData = fi->co[y][x];
+                tmpData->finalMapData->co[beginFY + y][beginFX + x] = coData;
+                
+                int teData = fi->te[y][x];
+                tmpData->finalMapData->te[beginFY + y][beginFX + x] = teData;
+            }
+        }
+    }
+    
+    // 添加所有的hole
+    for (HoleData* hole : tmpData->holeVec) {
+        if (hole->type == HoleType::fi) continue;
+        
+        int beginFX = hole->tX * 3 + 1;
+        int beginFY = hole->tY * 3;
+        int curFX = beginFX;
+        int curFY = beginFY;
+        
+        MapEle* ele = hole->ele;
+        MapEleBase* base = _mapEleBaseVec[ele->baseIndex];
+        
+        std::vector<int> hList = getEveryDigit(hole->ele->usingTYs, base->tH);
+        std::vector<int> wList = getEveryDigit(hole->ele->usingTXs, base->tW);
+        
+        for (int hIndex = 0; hIndex < hList.size(); hIndex++) {
+            int hKey = hList[hIndex];
+            if (hKey == 0) continue;
+            
+            for (int subHIndex = 0; subHIndex < 3; subHIndex++) {
+                int realY = hIndex * 3 + subHIndex;
+                
+                for (int wIndex = 0; wIndex < wList.size(); wIndex++) {
+                    int wKey = wList[wIndex];
+                    if (wKey == 0) continue;
+                    
+                    for (int subWIndex = 0; subWIndex < 3; subWIndex++) {
+                        int realX = wIndex * 3 + subWIndex;
+                        
+                        int coData = base->co[realY][realX];
+                        tmpData->finalMapData->co[curFY][curFX] = coData;
+                        tmpData->finalMapData->te[curFY][curFX] = coData;
+                        curFX++;
+                    }
+                }
+                curFY++;
+                curFX = beginFX;
+            }
+        }
+    }
+    
+    printVecVec(tmpData->finalMapData->co, 2);
 }
 
 void MapCreator::saveToJsonFile(MapTmpData* tmpData) {
