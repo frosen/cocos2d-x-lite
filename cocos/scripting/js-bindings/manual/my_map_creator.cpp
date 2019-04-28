@@ -305,9 +305,6 @@ public:
     std::vector<HoleData*> holeVec;
     std::vector<PipeData*> pipeVec;
 
-    // 用于扩展地图能表达的数据，thumbMap上会有此变量的index，从而获取到对应的点包含哪些pipe的位置
-    std::vector<std::vector<std::pair<int, int>>> tMapPipeData;
-
     int curSceneKey;
     MapTemp* w_curTemp; // 弱引用的当前地图模板
 };
@@ -319,6 +316,13 @@ public:
 #define FI_EDGE_ID_BEGIN (100)
 #define RA_EDGE_ID_BEGIN (200)
 #define PIPE_ID_BEGIN (10000)
+
+#define PIPE_TYPE_BLANK (20000)
+#define PIPE_TYPE_0 (21000)
+#define PIPE_TYPE_1 (22000)
+#define PIPE_TYPE_2 (23000)
+#define PIPE_TYPE_02 (24000)
+#define USING_WALL (25000)
 
 class MapCreator {
 public:
@@ -1299,18 +1303,9 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
             curPosIndex++;
 
             // 记录pipe的点位
-            std::pair<int, int> p = std::pair<int, int>(pipeIndex, curPosIndex);
             int curThumb = thumbMap[curY][curX];
-            if (curThumb >= PIPE_ID_BEGIN) {
-                int pipeDataIndex = curThumb - PIPE_ID_BEGIN;
-                tmpData->tMapPipeData[pipeDataIndex].push_back(p);
-
-            } else {
-                std::vector<std::pair<int, int>> vecP;
-                vecP.push_back(p);
-                tmpData->tMapPipeData.push_back(vecP);
-                int curPipeDataIndex = (int)tmpData->tMapPipeData.size() - 1;
-                thumbMap[curY][curX] = PIPE_ID_BEGIN + curPipeDataIndex;
+            if (curThumb < PIPE_ID_BEGIN) {
+                thumbMap[curY][curX] = PIPE_ID_BEGIN + pipeIndex;
             }
 
             pipe->tXs.push_back(curX);
@@ -1373,19 +1368,7 @@ void MapCreator::calcSpines(MapTmpData* tmpData) {
     
 }
 
-static std::vector<int> getEveryDigit(const int num, const int size) {
-    std::vector<int> list(size, 0);
-    int checkNum = num;
-    for (int i = size - 1; i >= 0; i--) {
-        list[i] = checkNum % 10;
-        checkNum /= 10;
-    }
-    
-    return list;
-}
-
-void MapCreator::createFinalMap(MapTmpData* tmpData) {
-    // 添加fi
+static void createFinalMapForFi(MapTmpData* tmpData) {
     for (FiTemp* fi : tmpData->w_curTemp->fis) {
         int beginFX = fi->rX;
         int beginFY = fi->rY;
@@ -1400,8 +1383,20 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
             }
         }
     }
+}
+
+static std::vector<int> getEveryDigit(const int num, const int size) {
+    std::vector<int> list(size, 0);
+    int checkNum = num;
+    for (int i = size - 1; i >= 0; i--) {
+        list[i] = checkNum % 10;
+        checkNum /= 10;
+    }
     
-    // 添加所有的hole
+    return list;
+}
+
+static void createFinalMapForHole(MapTmpData* tmpData, const std::vector<MapEleBase*> &mapEleBaseVec) {
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->type == HoleType::fi) continue;
         
@@ -1411,7 +1406,7 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
         int curFY = beginFY;
         
         MapEle* ele = hole->ele;
-        MapEleBase* base = _mapEleBaseVec[ele->baseIndex];
+        MapEleBase* base = mapEleBaseVec[ele->baseIndex];
         
         std::vector<int> hList = getEveryDigit(hole->ele->usingTYs, base->tH);
         std::vector<int> wList = getEveryDigit(hole->ele->usingTXs, base->tW);
@@ -1432,7 +1427,7 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
                         
                         int coData = base->co[realY][realX];
                         tmpData->finalMapData->co[curFY][curFX] = coData;
-                        tmpData->finalMapData->te[curFY][curFX] = coData;
+                        tmpData->finalMapData->te[curFY][curFX] = coData; // 这里的co和te是一样的，所以都用co
                         curFX++;
                     }
                 }
@@ -1441,8 +1436,147 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
             }
         }
     }
+}
+
+// pipe中每个块的类型
+enum class PipeBlockType {
+    blank, // 全空
+    plat0, // 第一行有平台
+    plat1, // 第二行有平台
+    plat2, // 第三行有平台
+    plat02, // 第一，三行有平台
+    spine50, // 一半加钉刺
+    wall, // 实体
+};
+
+static const int MAP_CO_DATA_BLANK = 0;
+static const int MAP_CO_DATA_PLAT = 19;
+
+static void fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, int beginY, FinalMapData* finalMapData) {
+    for (int subHIndex = 0; subHIndex < 3; subHIndex++) {
+        
+        int platXPos = -1;
+        if (std::find(platList.begin(), platList.end(), subHIndex) != platList.end()) {
+            platXPos = getRandom(0, 2);
+        }
+        
+        int realY = beginY + subHIndex;
+        for (int subWIndex = 0; subWIndex < 3; subWIndex++) {
+            int realX = beginX + subWIndex;
+            
+            int data = (platXPos == subWIndex) ? MAP_CO_DATA_PLAT : MAP_CO_DATA_BLANK;
+            finalMapData->co[realY][realX] = data;
+            finalMapData->te[realY][realX] = data;
+        }
+    }
+}
+
+static int fillFinalPipeBlockByType(PipeBlockType type, int beginX, int beginY, FinalMapData* finalMapData) {
+    switch (type) {
+        case PipeBlockType::blank:
+            fillFinalPipeBlockByPlatList({}, beginX, beginY, finalMapData);
+            return PIPE_TYPE_BLANK;
+        case PipeBlockType::plat0:
+            fillFinalPipeBlockByPlatList({0}, beginX, beginY, finalMapData);
+            return PIPE_TYPE_0;
+        case PipeBlockType::plat1:
+            fillFinalPipeBlockByPlatList({1}, beginX, beginY, finalMapData);
+            return PIPE_TYPE_1;
+        case PipeBlockType::plat2:
+            fillFinalPipeBlockByPlatList({2}, beginX, beginY, finalMapData);
+            return PIPE_TYPE_2;
+        case PipeBlockType::plat02:
+            fillFinalPipeBlockByPlatList({0, 2}, beginX, beginY, finalMapData);
+            return PIPE_TYPE_02;
+        default:
+            throw "wrong createFinalPipeBlockByType type";
+            break;
+    }
+}
+
+static void createFinalMapForPipe(MapTmpData* tmpData) {
+    // 先建立联通的
+    for (PipeData* pipe : tmpData->pipeVec) {
+        if (pipe->connected == false) continue;
+        log(">>>>>>>>>>>>>>> pipe %ld, %ld", pipe->tXs.size(), pipe->tYs.size());
+        for (int i = 0; i < pipe->tXs.size(); i++) {
+            int tX = pipe->tXs[i];
+            int tY = pipe->tYs[i];
+            
+            int rX = tX * 3 + 1;
+            int rY = tY * 3;
+            
+            int curTData;
+            if (tY == 0) {
+                curTData = fillFinalPipeBlockByType(PipeBlockType::blank, rX, rY, tmpData->finalMapData);
+            } else {
+                int tDataAbove = tmpData->thumbMap[tY - 1][tX];
+                if (tDataAbove < FI_HOLE_ID_BEGIN) { // 实体
+                    curTData = fillFinalPipeBlockByType(PipeBlockType::blank, rX, rY, tmpData->finalMapData);
+                } else if (tDataAbove < PIPE_ID_BEGIN) { // hole
+                    if (i == 0) {
+                        PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat0 : PipeBlockType::plat02;
+                        curTData = fillFinalPipeBlockByType(t, rX, rY, tmpData->finalMapData);
+                    } else {
+                        curTData = fillFinalPipeBlockByType(PipeBlockType::blank, rX, rY, tmpData->finalMapData);
+                    }
+                } else if (tDataAbove == PIPE_TYPE_0) {
+                    PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat0 : PipeBlockType::plat02;
+                    curTData = fillFinalPipeBlockByType(t, rX, rY, tmpData->finalMapData);
+                } else if (tDataAbove == PIPE_TYPE_1) {
+                    PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat1 : PipeBlockType::plat0;
+                    curTData = fillFinalPipeBlockByType(t, rX, rY, tmpData->finalMapData);
+                } else if (tDataAbove == PIPE_TYPE_2) {
+                    PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat2 : PipeBlockType::plat1;
+                    curTData = fillFinalPipeBlockByType(t, rX, rY, tmpData->finalMapData);
+                } else if (tDataAbove == PIPE_TYPE_02) {
+                    PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat2 : PipeBlockType::plat1;
+                    curTData = fillFinalPipeBlockByType(t, rX, rY, tmpData->finalMapData);
+                } else {
+                    // tDataAbove >= PIPE_ID_BEGIN && tDataAbove < PIPE_TYPE_0 || tDataAbove == PIPE_TYPE_BLANK
+                    // 空的话，还要看更上一层
+                    if (tY == 1 || tmpData->thumbMap[tY - 2][tX] == 0) {
+                        curTData = fillFinalPipeBlockByType(PipeBlockType::blank, rX, rY, tmpData->finalMapData);
+                    } else {
+                        PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat0 : PipeBlockType::plat02;
+                        curTData = fillFinalPipeBlockByType(t, rX, rY, tmpData->finalMapData);
+                    }
+                }
+            }
+            log(">>>>> xy %d, %d, data: %d", tX, tY, curTData);
+            tmpData->thumbMap[tY][tX] = curTData;
+        }
+    }
     
+    // 非通路随便挖
+    for (PipeData* pipe : tmpData->pipeVec) {
+        if (pipe->connected == true) continue;
+        for (int i = 0; i < pipe->tXs.size(); i++) {
+            int tX = pipe->tXs[i];
+            int tY = pipe->tYs[i];
+            int curTData = tmpData->thumbMap[tY][tX];
+            if (curTData < PIPE_TYPE_BLANK) {
+                fillFinalPipeBlockByType(PipeBlockType::blank, tX, tY, tmpData->finalMapData);
+            }
+        }
+    }
+}
+
+// 给管道拓宽
+static void createFinalMapForWidePipe(MapTmpData* tmpData) {
+    
+}
+
+void MapCreator::createFinalMap(MapTmpData* tmpData) {
+    createFinalMapForFi(tmpData);
+    createFinalMapForHole(tmpData, _mapEleBaseVec);
     printVecVec(tmpData->finalMapData->co, 2);
+    
+    createFinalMapForPipe(tmpData);
+    createFinalMapForWidePipe(tmpData);
+
+    printVecVec(tmpData->finalMapData->co, 2);
+    printVecVec(tmpData->thumbMap);
 }
 
 void MapCreator::saveToJsonFile(MapTmpData* tmpData) {
