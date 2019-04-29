@@ -240,9 +240,6 @@ public:
     std::vector<int> tXs;
     std::vector<int> tYs;
 
-    // 管道每节的方向
-    std::vector<int> dirs;
-
     bool connected; // 默认为true，但有的管子可以不通
 };
 
@@ -323,7 +320,8 @@ public:
 #define PIPE_TYPE_1 (50000)
 #define PIPE_TYPE_2 (60000)
 #define PIPE_TYPE_02 (70000)
-#define USING_WALL (80000)
+#define USING_WALL_LEFT (80000) // 移除的边向左
+#define USING_WALL_RIGHT (90000)
 
 class MapCreator {
 public:
@@ -357,6 +355,7 @@ protected:
     
     void calcSpines(MapTmpData* tmpData);
     void createFinalMap(MapTmpData* tmpData);
+    void finishFinalMap(MapTmpData* tmpData);
 
     void saveToJsonFile(MapTmpData* tmpData);
 
@@ -577,6 +576,7 @@ void MapCreator::threadLoop() {
         
         calcSpines(tmpData);
         createFinalMap(tmpData);
+        finishFinalMap(tmpData);
 
         // mapData 保存到本地 todo
         saveToJsonFile(tmpData);
@@ -1315,8 +1315,6 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
 
             // 连接到了另一个终端
             if (curX == finalX && curY == finalY) {
-                int dir = getOppositeStraightDoorDir(pipe->endPoints[1]->dir);
-                pipe->dirs.push_back(dir);
                 break;
             }
 
@@ -1357,8 +1355,6 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
                 }
                 curX = nextX; curY = nextY;
             }
-            int pDir = pDirIsX ? (xDir > 0 ? DOOR_RIGHT : DOOR_LEFT) : (yDir > 0 ? DOOR_DOWN : DOOR_UP);
-            pipe->dirs.push_back(pDir);
         }
     }
 
@@ -1367,7 +1363,7 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
 }
 
 void MapCreator::calcSpines(MapTmpData* tmpData) {
-    
+    // hole中的旋转spine要有间隔
 }
 
 static void createFinalMapForFi(MapTmpData* tmpData) {
@@ -1447,8 +1443,6 @@ enum class PipeBlockType {
     plat1, // 第二行有平台
     plat2, // 第三行有平台
     plat02, // 第一，三行有平台
-    spine50, // 一半加钉刺
-    wall, // 实体
 };
 
 static const int MAP_CO_DATA_BLANK = 0;
@@ -1476,8 +1470,11 @@ static void fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, 
                     mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
                 }
             } else {
-                int substitute = pipeIndex % 3 != 2 ? MAP_CO_DATA_PLAT : MAP_CO_DATA_BLOCK;
-                mapDataList[getRandom(0, 2)] = substitute;
+                if (pipeIndex % 3 != 2) {
+                    mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
+                } else {
+                    mapDataList[getRandom(0, 1) == 1 ? 0 : 2] = MAP_CO_DATA_BLOCK; // block 在中间怕不好跳
+                }
             }
         }
         
@@ -1526,7 +1523,6 @@ static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pip
 }
 
 static void createFinalMapForPipe(MapTmpData* tmpData) {
-    
     for (int tY = 0; tY < tmpData->thumbMap.size(); tY++) {
         std::vector<int> tXList = tmpData->thumbMap[tY];
         for (int tX = 0; tX < tXList.size(); tX++) {
@@ -1585,9 +1581,67 @@ static void createFinalMapForPipe(MapTmpData* tmpData) {
     }
 }
 
+static void setFinalMapDataBlank(MapTmpData* tmpData, int x, int y) {
+    tmpData->finalMapData->co[y][x] = MAP_CO_DATA_BLANK;
+    tmpData->finalMapData->te[y][x] = MAP_CO_DATA_BLANK;
+}
+
 // 给管道拓宽
 static void createFinalMapForWidePipe(MapTmpData* tmpData) {
-    
+    for (int tY = 1; tY < tmpData->thumbMap.size(); tY++) {
+        std::vector<int> tXList = tmpData->thumbMap[tY];
+        int beginY = tY * 3;
+        for (int tX = 1; tX < tXList.size() - 1; tX++) {
+            int tData = tXList[tX];
+            
+            if (tData != 0) continue;
+            int beginX = tX * 3 + 1;
+            
+            int wallAbove = tmpData->thumbMap[tY - 1][tX];
+            
+            int leftData = tmpData->thumbMap[tY][tX - 1];
+            bool leftIsPipe = leftData > PIPE_ID_BEGIN && leftData < USING_WALL_LEFT;
+            
+            int rightData = tmpData->thumbMap[tY][tX + 1];
+            bool rightIsPipe = rightData > PIPE_ID_BEGIN && rightData < USING_WALL_LEFT;
+            
+            if (wallAbove == USING_WALL_LEFT) {
+                if (leftIsPipe) {
+                    if (getRandom(0, 2) != 2) {
+                        tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
+                        setFinalMapDataBlank(tmpData, beginX, beginY);
+                        setFinalMapDataBlank(tmpData, beginX, beginY + 1);
+                        setFinalMapDataBlank(tmpData, beginX, beginY + 2);
+                    } else {
+                        setFinalMapDataBlank(tmpData, beginX, beginY);
+                        setFinalMapDataBlank(tmpData, beginX, beginY + 1);
+                    }
+                }
+            } else if (wallAbove == USING_WALL_RIGHT) {
+                if (rightIsPipe) {
+                    if (getRandom(0, 2) != 2) {
+                        tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY);
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 1);
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 2);
+                    } else {
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY);
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 1);
+                    }
+                }
+            } else {
+                if (getRandom(0, 2) != 2) {
+                    if (leftIsPipe) {
+                        tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
+                        setFinalMapDataBlank(tmpData, beginX, beginY + 2);
+                    } else if (rightIsPipe) {
+                        tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 2);
+                    }
+                }
+            }
+        }
+    }
 }
 
 static void finishHoleFirstLine(MapTmpData* tmpData) {
@@ -1637,12 +1691,18 @@ static void finishHoleFirstLine(MapTmpData* tmpData) {
 }
 
 static void finishMapFirstLine(MapTmpData* tmpData) {
-    
-}
-
-// 完善平台的背景
-static void finishPlatBG(MapTmpData* tmpData) {
-    
+    std::vector<int> tXList = tmpData->thumbMap[0];
+    for (int tX = 0; tX < tXList.size(); tX++) {
+        int tData = tXList[tX];
+        if (tData >= FI_HOLE_ID_BEGIN && tData < RA_HOLE_ID_BEGIN) continue;
+        
+        int beginX = tX * 3 + 1;
+        for (int subWIndex = 0; subWIndex < 3; subWIndex++) {
+            int realX = beginX + subWIndex;
+            tmpData->finalMapData->co[0][realX] = MAP_CO_DATA_BLOCK;
+            tmpData->finalMapData->te[0][realX] = MAP_CO_DATA_BLOCK;
+        }
+    }
 }
 
 void MapCreator::createFinalMap(MapTmpData* tmpData) {
@@ -1654,11 +1714,23 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
     
     finishHoleFirstLine(tmpData);
     finishMapFirstLine(tmpData);
-    
-    finishPlatBG(tmpData);
 
     printVecVec(tmpData->finalMapData->co, 2);
-    printVecVec(tmpData->thumbMap);
+}
+
+// 完善平台的背景
+static void finishPlatBG(MapTmpData* tmpData) {
+    
+}
+
+// 地形要根据周围的地形做出调整
+static void finishTeDir(MapTmpData* tmpData) {
+    
+}
+
+void MapCreator::finishFinalMap(MapTmpData* tmpData) {
+    finishPlatBG(tmpData);
+    finishTeDir(tmpData);
 }
 
 void MapCreator::saveToJsonFile(MapTmpData* tmpData) {
