@@ -48,6 +48,29 @@ static void printVecVec(std::vector<std::vector<int>> &vecvec, int d = 5) {
     printf("^^^^^^^^^^^^^^^\n");
 }
 
+static void printVecVecToFile(std::vector<std::vector<int>> &vecvec, std::string path) {
+    std::string vecStr = "";
+    for (int i = 0; i < vecvec.size(); i++) {
+        std::vector<int> vec = vecvec[i];
+        for (int j = 0; j < vec.size(); j++) {
+            char c[10];
+            sprintf(c, "%d", vec[j]);
+            vecStr += c;
+            vecStr += ",";
+        }
+        vecStr += "\n";
+    }
+    
+    auto filepath = FileUtils::getInstance()->getWritablePath();
+    filepath.append(path);
+    FILE* file = fopen(filepath.c_str(), "w");
+    if(file) {
+        printf("save to: %s\n", filepath.c_str());
+        fputs(vecStr.c_str(), file);
+        fclose(file);
+    }
+}
+
 // 获取随机数 -----------------------------------------------------------
 
 static std::default_random_engine* randomEngine = nullptr;
@@ -74,6 +97,10 @@ static void getReadyForRandom() {
 
 static inline int getRandom(int from, int to) {
     return ((*randomEngine)() % (to - from + 1)) + from;
+}
+
+static inline bool ifInPercent(int percent) {
+    return getRandom(1, 100) < percent;
 }
 
 // 数据模型 ---------------------------------------------------------------
@@ -1016,10 +1043,10 @@ static HoleDir getOppositeHoleDir(HoleDir dir) {
 // 把斜向的dir转成直向的
 static HoleDir getStraightHoleDir(HoleDir dir) {
     switch (dir) {
-        case HoleDir::lef_top: return (getRandom(0, 1) == 1 ? HoleDir::lef_mid : HoleDir::mid_top);
-        case HoleDir::lef_bot: return (getRandom(0, 1) == 1 ? HoleDir::lef_mid : HoleDir::mid_bot);
-        case HoleDir::rig_top: return (getRandom(0, 1) == 1 ? HoleDir::rig_mid : HoleDir::mid_top);
-        case HoleDir::rig_bot: return (getRandom(0, 1) == 1 ? HoleDir::rig_mid : HoleDir::mid_bot);
+        case HoleDir::lef_top: return (ifInPercent(50) ? HoleDir::lef_mid : HoleDir::mid_top);
+        case HoleDir::lef_bot: return (ifInPercent(50) ? HoleDir::lef_mid : HoleDir::mid_bot);
+        case HoleDir::rig_top: return (ifInPercent(50) ? HoleDir::rig_mid : HoleDir::mid_top);
+        case HoleDir::rig_bot: return (ifInPercent(50) ? HoleDir::rig_mid : HoleDir::mid_bot);
         default: return dir;
     }
 }
@@ -1138,7 +1165,7 @@ void MapCreator::connectExtraHole(MapTmpData* tmpData) {
         int index = getRandom(0, (int)unusedRelations.size() - 1);
         HoleRelation* curRelation = unusedRelations[index];
         PipeData* pipe = createPipe(tmpData, curRelation);
-        pipe->connected = getRandom(0, 1) == 1;
+        pipe->connected = ifInPercent(50);
         tmpData->pipeVec.push_back(pipe);
         unusedRelations.erase(unusedRelations.begin() + index);
     }
@@ -1260,18 +1287,6 @@ static void getEndPointPosition(MapTmpData* tmpData, PipeEndPoint* endPoint, int
     endPoint->tY = *tY;
 }
 
-static int getOppositeStraightDoorDir(int d) {
-    switch (d) {
-        case DOOR_UP: return DOOR_DOWN;
-        case DOOR_DOWN: return DOOR_UP;
-        case DOOR_LEFT: return DOOR_RIGHT;
-        case DOOR_RIGHT: return DOOR_LEFT;
-        default:
-            throw "wrong getOppositeStraightDoorDir param";
-            break;
-    }
-}
-
 void MapCreator::digPipe(MapTmpData* tmpData) {
     std::vector<std::vector<int>> thumbMap = std::move(tmpData->thumbMap); // 右值引用，拉出来使用
     int thumbMapWidth = (int)thumbMap[0].size();
@@ -1331,7 +1346,7 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
                 pDirIsX = true;
             } else {
                 int xMove, yMove, anoXMove, anoYMove;
-                if (getRandom(0, 1) == 1) {
+                if (ifInPercent(50)) {
                     xMove = xDir; yMove = 0; anoXMove = 0; anoYMove = yDir; pDirIsX = true;
                 } else {
                     xMove = 0; yMove = yDir; anoXMove = xDir; anoYMove = 0; pDirIsX = false;
@@ -1451,30 +1466,16 @@ static const int MAP_CO_DATA_PLAT = 19;
 static const int MAP_CO_DATA_PLAT_BG = 24;
 
 
-static void fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, int beginY, int pipeIndex, FinalMapData* finalMapData, bool check) {
+static void fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, int beginY, int pipeIndex, FinalMapData* finalMapData) {
     for (int subHIndex = 0; subHIndex < 3; subHIndex++) {
         int realY = beginY + subHIndex;
         std::vector<int> mapDataList = {MAP_CO_DATA_BLANK, MAP_CO_DATA_BLANK, MAP_CO_DATA_BLANK};
         
         if (std::find(platList.begin(), platList.end(), subHIndex) != platList.end()) {
-            if (check && subHIndex == 0) {
-                if (finalMapData->co[realY - 1][beginX] == MAP_CO_DATA_BLOCK) {
-                    mapDataList[2] = MAP_CO_DATA_PLAT;
-                } else if (finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_BLOCK) {
-                    mapDataList[0] = MAP_CO_DATA_PLAT;
-                } else if (finalMapData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_BG) {
-                    mapDataList[0] = MAP_CO_DATA_PLAT;
-                    mapDataList[1] = MAP_CO_DATA_PLAT;
-                    mapDataList[2] = MAP_CO_DATA_PLAT;
-                } else {
-                    mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
-                }
+            if (subHIndex == 1 && ifInPercent(70)) { // 为了保证block之间空两个，所以只有中间的一行能变block
+                mapDataList[ifInPercent(50) ? 0 : 2] = MAP_CO_DATA_BLOCK; // block 在中间怕不好跳
             } else {
-                if (pipeIndex % 3 != 2) {
-                    mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
-                } else {
-                    mapDataList[getRandom(0, 1) == 1 ? 0 : 2] = MAP_CO_DATA_BLOCK; // block 在中间怕不好跳
-                }
+                mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
             }
         }
         
@@ -1487,7 +1488,7 @@ static void fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, 
     }
 }
 
-static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pipeIndex, MapTmpData* tmpData, bool check = false) {
+static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pipeIndex, MapTmpData* tmpData) {
     int beginX = tX * 3 + 1;
     int beginY = tY * 3;
     FinalMapData* finalMapData = tmpData->finalMapData;
@@ -1495,23 +1496,23 @@ static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pip
     int curTData;
     switch (type) {
         case PipeBlockType::blank:
-            fillFinalPipeBlockByPlatList({}, beginX, beginY, pipeIndex, finalMapData, check);
+            fillFinalPipeBlockByPlatList({}, beginX, beginY, pipeIndex, finalMapData);
             curTData = PIPE_TYPE_BLANK;
             break;
         case PipeBlockType::plat0:
-            fillFinalPipeBlockByPlatList({0}, beginX, beginY, pipeIndex, finalMapData, check);
+            fillFinalPipeBlockByPlatList({0}, beginX, beginY, pipeIndex, finalMapData);
             curTData = PIPE_TYPE_0;
             break;
         case PipeBlockType::plat1:
-            fillFinalPipeBlockByPlatList({1}, beginX, beginY, pipeIndex, finalMapData, check);
+            fillFinalPipeBlockByPlatList({1}, beginX, beginY, pipeIndex, finalMapData);
             curTData = PIPE_TYPE_1;
             break;
         case PipeBlockType::plat2:
-            fillFinalPipeBlockByPlatList({2}, beginX, beginY, pipeIndex, finalMapData, check);
+            fillFinalPipeBlockByPlatList({2}, beginX, beginY, pipeIndex, finalMapData);
             curTData = PIPE_TYPE_2;
             break;
         case PipeBlockType::plat02:
-            fillFinalPipeBlockByPlatList({0, 2}, beginX, beginY, pipeIndex, finalMapData, check);
+            fillFinalPipeBlockByPlatList({0, 2}, beginX, beginY, pipeIndex, finalMapData);
             curTData = PIPE_TYPE_02;
             break;
         default:
@@ -1520,6 +1521,57 @@ static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pip
     }
 
     tmpData->thumbMap[tY][tX] = curTData + pipeIndex;
+}
+
+static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, MapTmpData* tmpData, bool firstBlock) {
+    int beginX = tX * 3 + 1;
+    int beginY = tY * 3;
+    FinalMapData* finalMapData = tmpData->finalMapData;
+
+    for (int subHIndex = 0; subHIndex < 3; subHIndex++) {
+        int realY = beginY + subHIndex;
+        std::vector<int> mapDataList = {MAP_CO_DATA_BLANK, MAP_CO_DATA_BLANK, MAP_CO_DATA_BLANK};
+        
+        bool plat1 = false;
+        if (subHIndex == 0) {
+            if (firstBlock) {
+                if (finalMapData->co[realY - 1][beginX] == MAP_CO_DATA_BLOCK) {
+                    mapDataList[2] = MAP_CO_DATA_PLAT;
+                    mapDataList[0] = MAP_CO_DATA_BLOCK;
+                } else if (finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_BLOCK) {
+                    mapDataList[0] = MAP_CO_DATA_PLAT;
+                    mapDataList[2] = MAP_CO_DATA_BLOCK;
+                } else if (finalMapData->co[realY - 1][beginX] == MAP_CO_DATA_PLAT_BG ||
+                    finalMapData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_BG ||
+                    finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_BG) {
+                    mapDataList[0] = MAP_CO_DATA_PLAT;
+                    mapDataList[1] = MAP_CO_DATA_PLAT;
+                    mapDataList[2] = MAP_CO_DATA_PLAT;
+                } else {
+                    if (ifInPercent(50)) {
+                        mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
+                    } else {
+                        plat1 = true;
+                    }
+                }
+            } else {
+                if (finalMapData->co[realY - 1][beginX] != MAP_CO_DATA_BLOCK) mapDataList[0] = MAP_CO_DATA_PLAT;
+                if (finalMapData->co[realY - 1][beginX + 1] != MAP_CO_DATA_BLOCK) mapDataList[1] = MAP_CO_DATA_PLAT;
+                if (finalMapData->co[realY - 1][beginX + 2] != MAP_CO_DATA_BLOCK) mapDataList[2] = MAP_CO_DATA_PLAT;
+            }
+        } else if (subHIndex == 1 && plat1) {
+            mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
+        }
+        
+        for (int subWIndex = 0; subWIndex < 3; subWIndex++) {
+            int realX = beginX + subWIndex;
+            int data = mapDataList[subWIndex];
+            finalMapData->co[realY][realX] = data;
+            finalMapData->te[realY][realX] = data;
+        }
+    }
+
+    tmpData->thumbMap[tY][tX] = PIPE_TYPE_0 + pipeIndex;
 }
 
 static void createFinalMapForPipe(MapTmpData* tmpData) {
@@ -1549,30 +1601,25 @@ static void createFinalMapForPipe(MapTmpData* tmpData) {
                 } else if (tDataAbove < FI_HOLE_ID_BEGIN) { // 实地
                     fillFinalPipeBlockByType(PipeBlockType::blank, tX, tY, pipeIndex, tmpData);
                 } else if (tDataAbove < PIPE_ID_BEGIN) { // hole
-                    if (firstPipeBlock) {
-                        PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat0 : PipeBlockType::plat02;
-                        fillFinalPipeBlockByType(t, tX, tY, pipeIndex, tmpData, true);
-                    } else {
-                        fillFinalPipeBlockByType(PipeBlockType::blank, tX, tY, pipeIndex, tmpData, true);
-                    }
+                    fillFinalPipeBlockWithHoleAbove(tX, tY, pipeIndex, tmpData, firstPipeBlock);
                 } else if (tDataAbove == PIPE_TYPE_0) {
-                    PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat0 : PipeBlockType::plat02;
+                    PipeBlockType t = ifInPercent(66) ? PipeBlockType::plat0 : PipeBlockType::plat02;
                     fillFinalPipeBlockByType(t, tX, tY, pipeIndex, tmpData);
                 } else if (tDataAbove == PIPE_TYPE_1) {
-                    PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat1 : PipeBlockType::plat0;
+                    PipeBlockType t = ifInPercent(66) ? PipeBlockType::plat1 : PipeBlockType::plat0;
                     fillFinalPipeBlockByType(t, tX, tY, pipeIndex, tmpData);
                 } else if (tDataAbove == PIPE_TYPE_2) {
-                    PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat2 : PipeBlockType::plat1;
+                    PipeBlockType t = ifInPercent(66) ? PipeBlockType::plat2 : PipeBlockType::plat1;
                     fillFinalPipeBlockByType(t, tX, tY, pipeIndex, tmpData);
                 } else if (tDataAbove == PIPE_TYPE_02) {
-                    PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat2 : PipeBlockType::plat1;
+                    PipeBlockType t = ifInPercent(66) ? PipeBlockType::plat2 : PipeBlockType::plat1;
                     fillFinalPipeBlockByType(t, tX, tY, pipeIndex, tmpData);
                 } else { // tDataAbove == PIPE_TYPE_BLANK 空的话，还要看更上一层
                     if (tY == 1 || tmpData->thumbMap[tY - 2][tX] < FI_HOLE_ID_BEGIN) {
-                        PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::blank : PipeBlockType::plat0;
+                        PipeBlockType t = ifInPercent(66) ? PipeBlockType::blank : PipeBlockType::plat0;
                         fillFinalPipeBlockByType(t, tX, tY, pipeIndex, tmpData);
                     } else {
-                        PipeBlockType t = getRandom(0, 2) != 0 ? PipeBlockType::plat0 : PipeBlockType::plat02;
+                        PipeBlockType t = ifInPercent(66) ? PipeBlockType::plat0 : PipeBlockType::plat02;
                         fillFinalPipeBlockByType(t, tX, tY, pipeIndex, tmpData);
                     }
                 }
@@ -1588,10 +1635,10 @@ static void setFinalMapDataBlank(MapTmpData* tmpData, int x, int y) {
 
 // 给管道拓宽
 static void createFinalMapForWidePipe(MapTmpData* tmpData) {
-    for (int tY = 1; tY < tmpData->thumbMap.size(); tY++) {
+    for (int tY = 1; tY < tmpData->thumbMap.size(); tY++) { // 舍去第一行
         std::vector<int> tXList = tmpData->thumbMap[tY];
         int beginY = tY * 3;
-        for (int tX = 1; tX < tXList.size() - 1; tX++) {
+        for (int tX = 1; tX < tXList.size() - 1; tX++) { // 舍去左右的列
             int tData = tXList[tX];
             
             if (tData != 0) continue;
@@ -1607,7 +1654,7 @@ static void createFinalMapForWidePipe(MapTmpData* tmpData) {
             
             if (wallAbove == USING_WALL_LEFT) {
                 if (leftIsPipe) {
-                    if (getRandom(0, 2) != 2) {
+                    if (ifInPercent(66)) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
                         setFinalMapDataBlank(tmpData, beginX, beginY);
                         setFinalMapDataBlank(tmpData, beginX, beginY + 1);
@@ -1619,7 +1666,7 @@ static void createFinalMapForWidePipe(MapTmpData* tmpData) {
                 }
             } else if (wallAbove == USING_WALL_RIGHT) {
                 if (rightIsPipe) {
-                    if (getRandom(0, 2) != 2) {
+                    if (ifInPercent(66)) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
                         setFinalMapDataBlank(tmpData, beginX + 2, beginY);
                         setFinalMapDataBlank(tmpData, beginX + 2, beginY + 1);
@@ -1629,8 +1676,22 @@ static void createFinalMapForWidePipe(MapTmpData* tmpData) {
                         setFinalMapDataBlank(tmpData, beginX + 2, beginY + 1);
                     }
                 }
+            } else if (PIPE_ID_BEGIN <= wallAbove && wallAbove < USING_WALL_LEFT) {
+                if (ifInPercent(70)) {
+                    if (leftIsPipe) {
+                        tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
+                        setFinalMapDataBlank(tmpData, beginX, beginY);
+                        setFinalMapDataBlank(tmpData, beginX, beginY + 1);
+                        setFinalMapDataBlank(tmpData, beginX, beginY + 2);
+                    } else if (rightIsPipe) {
+                        tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY);
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 1);
+                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 2);
+                    }
+                }
             } else {
-                if (getRandom(0, 2) != 2) {
+                if (ifInPercent(70)) {
                     if (leftIsPipe) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
                         setFinalMapDataBlank(tmpData, beginX, beginY + 2);
@@ -1715,7 +1776,7 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
     finishHoleFirstLine(tmpData);
     finishMapFirstLine(tmpData);
 
-    printVecVec(tmpData->finalMapData->co, 2);
+    printVecVecToFile(tmpData->finalMapData->co, "myMap/map.csv");
 }
 
 // 完善平台的背景
