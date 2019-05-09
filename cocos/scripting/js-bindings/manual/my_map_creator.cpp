@@ -1709,44 +1709,57 @@ static void finishHoleFirstLine(MapTmpData* tmpData) {
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->tY == 0) continue;
         
+        bool aboveDigging = ifInPercent(50); // 是否挖掉更上的一行
+        
         int beginX = hole->tX * 3 + 1;
         int beginY = hole->tY * 3;
         int yAbove = beginY - 1;
         int height = hole->tW * 3;
 
-        std::vector<int> platXVec;
+        std::vector<std::vector<int>> platXVecVec;
+        platXVecVec.resize(hole->tW);
+        bool blank = false; // 从非空变成空，重新计入一个新的vec中，让连续的空放在一起，以便去除两边
+        int platXVecIndex = -1;
+
         for (int x = 0; x < height; x++) {
             int realX = beginX + x;
             int data = tmpData->finalMapData->co[beginY][realX];
+            if (data != MAP_CO_DATA_BLANK) continue;
+
             int dataAbove = tmpData->finalMapData->co[yAbove][realX];
             
-            if (data == MAP_CO_DATA_BLANK && dataAbove == MAP_CO_DATA_BLANK) {
-                platXVec.push_back(realX);
+            if (dataAbove == MAP_CO_DATA_BLANK) {
+                if (blank == false) {
+                    blank = true;
+                    platXVecIndex++;
+                }
+                platXVecVec[platXVecIndex].push_back(realX);
+            } else {
+                blank = false;
+                
+                if (aboveDigging) {
+                    int realTX = (realX - 1) / 3;
+                    int thumbDataAbove = tmpData->thumbMap[hole->tY - 1][realTX];
+                    if (thumbDataAbove < FI_HOLE_ID_BEGIN || thumbDataAbove >= USING_WALL_LEFT) {
+                        tmpData->finalMapData->co[yAbove][realX] = MAP_CO_DATA_BLANK;
+                        tmpData->finalMapData->te[yAbove][realX] = MAP_CO_DATA_BLANK;
+                    }
+                }
             }
         }
         
-        if (platXVec.size() > 2) {
-            int r = getRandom(0, 3);
-            switch (r) {
-                case 1:
-                    platXVec[0] = -1;
-                    break;
-                case 2:
-                    platXVec[platXVec.size() - 1] = -1;
-                    break;
-                case 3:
-                    platXVec[0] = -1;
-                    platXVec[platXVec.size() - 1] = -1;
-                    break;
-                default:
-                    break;
+        for (auto platXVec : platXVecVec) {
+            // 掐头去尾
+            if (platXVec.size() > 2) {
+                platXVec[0] = -1;
+                platXVec[platXVec.size() - 1] = -1;
             }
-        }
-        
-        for (int x : platXVec) {
-            if (x < 0) continue;
-            tmpData->finalMapData->co[beginY][x] = MAP_CO_DATA_PLAT;
-            tmpData->finalMapData->te[beginY][x] = MAP_CO_DATA_PLAT;
+            
+            for (int x : platXVec) {
+                if (x < 0) continue;
+                tmpData->finalMapData->co[beginY][x] = MAP_CO_DATA_PLAT;
+                tmpData->finalMapData->te[beginY][x] = MAP_CO_DATA_PLAT;
+            }
         }
     }
 }
