@@ -63,11 +63,14 @@ static void printVecVecToFile(std::vector<std::vector<int>> &vecvec, std::string
     
     auto filepath = FileUtils::getInstance()->getWritablePath();
     filepath.append(path);
+    printf("save to: %s", filepath.c_str());
     FILE* file = fopen(filepath.c_str(), "w");
     if(file) {
-        printf("save to: %s\n", filepath.c_str());
         fputs(vecStr.c_str(), file);
         fclose(file);
+        printf("\n");
+    } else {
+        printf(" >> ERROR! \n");
     }
 }
 
@@ -92,7 +95,7 @@ static void getReadyForRandom() {
     int seed = abs(timeSeed - abs(ptrSeed));
     printf("s = %d (%d, %d)\n", seed, timeSeed, ptrSeed);
 
-    randomEngine->seed(1552108943);
+    randomEngine->seed(1557623694);
 }
 
 static inline int getRandom(int from, int to) {
@@ -250,7 +253,7 @@ public:
     virtual ~PipeEndPoint();
 
     int holeIndex;
-    int dir;
+    int dir; // 等于对应hole的doorDir
     int tX;
     int tY;
 };
@@ -307,7 +310,7 @@ public:
 
     bool inCircuit; // 是否在通路中
 
-    int doorDir;
+    int doorDir; // 二进制 每一位代表一个方向是否存在门
     std::map<int, int> substitutesMap; // HoleDir: HoleDir
 
     std::vector<HoleRelation*> relations;
