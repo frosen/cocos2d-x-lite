@@ -124,6 +124,16 @@ public:
     std::vector<std::vector<int>> co; // 碰撞 ele的地形和碰撞数据中数字是一致的，所以有一个即可
 };
 
+class SpineData {
+public:
+    SpineData();
+    virtual ~SpineData();
+    
+    int x;
+    int y;
+    int id;
+};
+
 // 随机区域中使用的区块模板，从Base中扣出来
 class MapEle {
 public:
@@ -138,6 +148,8 @@ public:
     int usingTYs; // 纵向使用的块
 
     std::vector<int> door[4]; // 上，下，左，右 的固定块的连接方向，值对应从左到右从上到下，从0开始的tX/tY
+    
+    std::vector<SpineData*> spineList;
 };
 
 #define MAX_R_TW (7)
@@ -419,10 +431,21 @@ MapEleBase::~MapEleBase() {
 
 // ---------------
 
+SpineData::SpineData() {
+}
+
+SpineData::~SpineData() {
+}
+
+// ---------------
+
 MapEle::MapEle() {
 }
 
 MapEle::~MapEle() {
+    for (SpineData* sp: spineList) {
+        delete sp;
+    }
 }
 
 // ---------------
@@ -1961,6 +1984,7 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
 
     bool ok;
     uint32_t len = 0;
+    se::Value tmp;
 
     assert(obj->isArray());
     ok = obj->getArrayLength(&len);
@@ -1973,6 +1997,7 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     se::Value usingTXs;
     se::Value usingTYs;
     se::Value door;
+    se::Value spine;
 
     // index w h
     ok = obj->getArrayElement(0, &baseIndex);
@@ -2005,7 +2030,6 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     SE_PRECONDITION2(ok, false, "error door len");
     assert(len == 4); // 上下左右，只能是4个
 
-    se::Value tmp;
     for (uint32_t i = 0; i < len; ++i) {
         ok = doorobj->getArrayElement(i, &tmp);
         SE_PRECONDITION2(ok && tmp.isObject(), false, "error door tmp");
@@ -2026,6 +2050,42 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
         }
 
         ret->door[i] = subVec;
+    }
+    
+    // spine
+    ok = obj->getArrayElement(6, &spine);
+    SE_PRECONDITION2(ok && door.isObject(), false, "error spine");
+    
+    se::Object* spineobj = spine.toObject();
+    assert(spineobj->isArray());
+    ok = spineobj->getArrayLength(&len);
+    SE_PRECONDITION2(ok, false, "error spine len");
+    
+    for (uint32_t i = 0; i < len; ++i) {
+        ok = spineobj->getArrayElement(i, &tmp);
+        SE_PRECONDITION2(ok && tmp.isObject(), false, "error spine tmp");
+        
+        se::Object* subobj = tmp.toObject();
+        
+        se::Value x;
+        se::Value y;
+        se::Value id;
+        
+        SpineData* spineData = new SpineData();
+        
+        ok = subobj->getProperty("x", &x);
+        SE_PRECONDITION2(ok && x.isNumber(), false, "error spine x");
+        spineData->x = x.toInt32();
+        
+        ok = subobj->getProperty("y", &y);
+        SE_PRECONDITION2(ok && y.isNumber(), false, "error spine y");
+        spineData->y = y.toInt32();
+        
+        ok = subobj->getProperty("id", &id);
+        SE_PRECONDITION2(ok && id.isNumber(), false, "error spine id");
+        spineData->y = id.toInt32();
+        
+        ret->spineList.push_back(spineData);
     }
 
     return true;
