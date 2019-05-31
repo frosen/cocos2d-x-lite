@@ -350,6 +350,7 @@ public:
 
 // 地图生成器 ----------------------------------------------------------------
 
+// thumb map的值
 #define FI_HOLE_ID_BEGIN (1000)
 #define RA_HOLE_ID_BEGIN (2000)
 #define FI_EDGE_ID_BEGIN (100)
@@ -366,6 +367,22 @@ public:
 #define PIPE_TYPE_2_BLOCK (90000)
 #define USING_WALL_LEFT (100000) // 移除的边向左
 #define USING_WALL_RIGHT (110000)
+
+// pipe中每个块的类型
+enum class PipeBlockType {
+    blank, // 全空
+    plat0, // 第一行有平台
+    plat1, // 第二行有平台
+    plat2, // 第三行有平台
+    plat02, // 第一，三行有平台
+};
+
+// tilemap中的地形和碰撞
+static const int MAP_CO_DATA_BLANK = 0;
+static const int MAP_CO_DATA_BLOCK = 1;
+static const int MAP_CO_DATA_PLAT = 19;
+static const int MAP_CO_DATA_PLAT_BG = 24;
+static const int MAP_AUTO_TE_DATA_MAX = 48; // 最大的自动地形，<=这个值的地形都是跟着碰撞走的，>的属于自定义
 
 class MapCreator {
 public:
@@ -1479,20 +1496,6 @@ static void createFinalMapForHole(MapTmpData* tmpData, const std::vector<MapEleB
     }
 }
 
-// pipe中每个块的类型
-enum class PipeBlockType {
-    blank, // 全空
-    plat0, // 第一行有平台
-    plat1, // 第二行有平台
-    plat2, // 第三行有平台
-    plat02, // 第一，三行有平台
-};
-
-static const int MAP_CO_DATA_BLANK = 0;
-static const int MAP_CO_DATA_BLOCK = 1;
-static const int MAP_CO_DATA_PLAT = 19;
-static const int MAP_CO_DATA_PLAT_BG = 24;
-
 // 返回是否使用实地而不是平台
 static bool fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, int beginY, int pipeIndex, FinalMapData* finalMapData) {
     int blockUsing = false;
@@ -1848,8 +1851,9 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
     
     finishHoleFirstLine(tmpData);
     finishMapFirstLine(tmpData);
-
-    printVecVecToFile(tmpData->finalMapData->co, "myMap/map.csv");
+    
+//    printVecVecToFile(tmpData->finalMapData->co, "myMap/mapCo.csv");
+//    printVecVecToFile(tmpData->finalMapData->te, "myMap/mapTe.csv");
 }
 
 // 完善平台的背景
@@ -1897,94 +1901,135 @@ static std::map <int, int> teDirTypeMap = {
     
     
     // 三方向
-    {0b11100000,  1}, {0b11100001,  1}, {0b11100010,  1}, {0b11100011,  1}, {0b11100100,  1}, {0b11100101,  1}, {0b11100110,  1}, {0b11100111,  1},
-    {0b11101000,  1}, {0b11101001,  1}, {0b11101010,  1}, {0b11101011,  1}, {0b11101100,  1}, {0b11101101,  1}, {0b11101110,  1}, {0b11101111,  1},
+    {0b11100000,  2}, {0b11100001,  2}, {0b11100010,  2}, {0b11100011,  2}, {0b11100100, 13}, {0b11100101, 13}, {0b11100110, 13}, {0b11100111, 13},
+    {0b11101000, 14}, {0b11101001, 14}, {0b11101010, 14}, {0b11101011, 14}, {0b11101100,  4}, {0b11101101,  4}, {0b11101110,  4}, {0b11101111,  4},
     
-    {0b01110000,  1}, {0b01110001,  1}, {0b01110010,  1}, {0b01110011,  1}, {0b01110100,  1}, {0b01110101,  1}, {0b01110110,  1}, {0b01110111,  1},
-    {0b01111000,  1}, {0b01111001,  1}, {0b01111010,  1}, {0b01111011,  1}, {0b01111100,  1}, {0b01111101,  1}, {0b01111110,  1}, {0b01111111,  1},
+    {0b01110000,  2}, {0b01110001,  2}, {0b01110010, 12}, {0b01110011, 12}, {0b01110100, 13}, {0b01110101, 13}, {0b01110110,  5}, {0b01110111,  5},
+    {0b01111000,  2}, {0b01111001,  2}, {0b01111010, 12}, {0b01111011, 12}, {0b01111100, 13}, {0b01111101, 13}, {0b01111110,  5}, {0b01111111,  5},
 
-    {0b11010000,  1}, {0b11010001,  1}, {0b11010010,  1}, {0b11010011,  1}, {0b11010100,  1}, {0b11010101,  1}, {0b11010110,  1}, {0b11010111,  1},
-    {0b11011000,  1}, {0b11011001,  1}, {0b11011010,  1}, {0b11011011,  1}, {0b11011100,  1}, {0b11011101,  1}, {0b11011110,  1}, {0b11011111,  1},
+    {0b11010000,  2}, {0b11010001, 11}, {0b11010010, 12}, {0b11010011,  3}, {0b11010100,  2}, {0b11010101, 11}, {0b11010110, 12}, {0b11010111,  3},
+    {0b11011000,  2}, {0b11011001, 11}, {0b11011010, 12}, {0b11011011,  3}, {0b11011100,  2}, {0b11011101, 11}, {0b11011110, 12}, {0b11011111,  3},
     
-    {0b10110000,  1}, {0b10110001,  1}, {0b10110010,  1}, {0b10110011,  1}, {0b10110100,  1}, {0b10110101,  1}, {0b10110110,  1}, {0b10110111,  1},
-    {0b10111000,  1}, {0b10111001,  1}, {0b10111010,  1}, {0b10111011,  1}, {0b10111100,  1}, {0b10111101,  1}, {0b10111110,  1}, {0b10111111,  1},
+    {0b10110000,  2}, {0b10110001, 11}, {0b10110010,  2}, {0b10110011, 11}, {0b10110100,  2}, {0b10110101, 11}, {0b10110110,  2}, {0b10110111, 11},
+    {0b10111000, 14}, {0b10111001,  6}, {0b10111010, 14}, {0b10111011,  6}, {0b10111100, 14}, {0b10111101,  6}, {0b10111110, 14}, {0b10111111,  6},
     
     // 四边
-    {0b11110000,  1}, {0b11110001,  1}, {0b11110010,  1}, {0b11110011,  1}, {0b11110100,  1}, {0b11110101,  1}, {0b11110110,  1}, {0b11110111,  1},
-    {0b11111000,  1}, {0b11111001,  1}, {0b11111010,  1}, {0b11111011,  1}, {0b11111100,  1}, {0b11111101,  1}, {0b11111110,  1}, {0b11111111,  1},
+    {0b11110000,  2}, {0b11110001, 11}, {0b11110010, 12}, {0b11110011,  3}, {0b11110100, 13}, {0b11110101,  2}, {0b11110110,  5}, {0b11110111,  8},
+    {0b11111000, 14}, {0b11111001,  6}, {0b11111010,  2}, {0b11111011,  7}, {0b11111100,  4}, {0b11111101,  9}, {0b11111110, 10}, {0b11111111,  1},
 };
 
+// map转成数组，增加查询速度
+static int* teDirTypeList = nullptr;
 
-static inline int isTeBlank(int te) {
-    return (te == 0 || te >= MAP_CO_DATA_PLAT) ? 1 : 0;
+static inline int isTeBlock(int te) {
+    return (0 < te && te < MAP_CO_DATA_PLAT) ? 1 : 0;
 }
 
 static int getTeDirType(int lef, int rig, int top, int bot, int leto, int rito, int lebo, int ribo) {
     int type =
-        (isTeBlank(lef)  << 7) +
-        (isTeBlank(rig)  << 6) +
-        (isTeBlank(top)  << 5) +
-        (isTeBlank(bot)  << 4) +
-        (isTeBlank(leto) << 3) +
-        (isTeBlank(rito) << 2) +
-        (isTeBlank(lebo) << 1) +
-        (isTeBlank(ribo) << 0);
+        (isTeBlock(lef)  << 7) +
+        (isTeBlock(rig)  << 6) +
+        (isTeBlock(top)  << 5) +
+        (isTeBlock(bot)  << 4) +
+        (isTeBlock(leto) << 3) +
+        (isTeBlock(rito) << 2) +
+        (isTeBlock(lebo) << 1) +
+        (isTeBlock(ribo) << 0);
+
+    if (!teDirTypeList) {
+        teDirTypeList = new int[256];
+        for (int i = 0; i < 256; i++) {
+            teDirTypeList[i] = teDirTypeMap[i];
+        }
+    }
     
-    return teDirTypeMap[type];
+    return teDirTypeList[type];
 }
 
 // 地形要根据周围的地形做出调整
 static void finishTeDir(MapTmpData* tmpData) {
-    std::vector<std::vector<int>>* pte = &(tmpData->finalMapData->te);
+    std::vector<std::vector<int>>* pCo = &(tmpData->finalMapData->co); // 根据碰撞进行变化，所以取co
+    std::vector<std::vector<int>>* pTe = &(tmpData->finalMapData->te);
 
     // 上下
-    std::vector<int>* pHeadLine = &((*pte)[0]);
-    for (int rx = 0; rx < pHeadLine->size(); rx++) {
-        int teData = (*pHeadLine)[rx];
-        if (teData == MAP_CO_DATA_BLOCK) {
+    std::vector<int>* pHeadLine = &((*pCo)[0]);
+    int lSize = (int)pHeadLine->size();
+
+    for (int rx = 0; rx < lSize; rx++) {
+        if ((*pTe)[0][rx] > MAP_AUTO_TE_DATA_MAX) continue; // 如果te已经被设置，则跳过
+        
+        int coData = (*pHeadLine)[rx];
+        if (coData == MAP_CO_DATA_BLOCK) {
             if (rx == 0) {
-
-            } else if (rx == pHeadLine->size() - 1) {
-
+                coData = getTeDirType(1, (*pCo)[0][1], 1, (*pCo)[1][0], 1, 1, (*pCo)[1][1], 1);
+            } else if (rx == lSize - 1) {
+                coData = getTeDirType((*pCo)[0][rx - 1], 1, 1, (*pCo)[1][rx], 1, 1, 1, (*pCo)[1][rx - 1]);
             } else {
-
+                coData = getTeDirType(
+                    (*pCo)[0][rx - 1], (*pCo)[0][rx + 1], 1, (*pCo)[1][rx],
+                    1, 1, (*pCo)[1][rx + 1], (*pCo)[1][rx - 1]);
             }
+            (*pTe)[0][rx] = coData;
         }
     }
 
-    std::vector<int>* pFinalLine = &((*pte)[pte->size() - 1]);
-    for (int rx = 0; rx < pFinalLine->size(); rx++) {
-        int teData = (*pFinalLine)[rx];
-        if (teData == MAP_CO_DATA_BLOCK) {
+    int hSize = (int)pCo->size();
+    int ryF = hSize - 1;
+    std::vector<int>* pFinalLine = &((*pCo)[ryF]);
+    for (int rx = 0; rx < lSize; rx++) {
+        if ((*pTe)[ryF][rx] > MAP_AUTO_TE_DATA_MAX) continue; // 如果te已经被设置，则跳过
+        
+        int coData = (*pFinalLine)[rx];
+        if (coData == MAP_CO_DATA_BLOCK) {
             if (rx == 0) {
-
-            } else if (rx == pHeadLine->size() - 1) {
-
+                coData = getTeDirType(1, (*pCo)[ryF][1], (*pCo)[ryF - 1][0], 1, 1, (*pCo)[ryF - 1][1], 1, 1);
+            } else if (rx == lSize - 1) {
+                coData = getTeDirType((*pCo)[ryF][rx - 1], 1, (*pCo)[ryF - 1][rx], 1, (*pCo)[ryF - 1][rx - 1], 1, 1, 1);
             } else {
-
+                coData = getTeDirType(
+                    (*pCo)[ryF][rx - 1], (*pCo)[ryF][rx + 1], (*pCo)[ryF - 1][rx], 1,
+                    (*pCo)[ryF - 1][rx - 1], (*pCo)[ryF - 1][rx + 1], 1, 1);
             }
+            (*pTe)[ryF][rx] = coData;
         }
     }
     
     // 左右
-    for (int ry = 1; ry < pte->size() - 1; ry++) {
-        int teDataLeft = (*pte)[ry][0];
-        if (teDataLeft == MAP_CO_DATA_BLOCK) {
-            
+    for (int ry = 1; ry < hSize - 1; ry++) {
+        if ((*pTe)[ry][0] <= MAP_AUTO_TE_DATA_MAX) {
+            int coDataLeft = (*pCo)[ry][0];
+            if (coDataLeft == MAP_CO_DATA_BLOCK) {
+                coDataLeft = getTeDirType(
+                    1, (*pCo)[ry][1], (*pCo)[ry - 1][0], (*pCo)[ry + 1][0],
+                    1, (*pCo)[ry - 1][1], (*pCo)[ry + 1][1], 1);
+                (*pTe)[ry][0] = coDataLeft;
+            }
         }
         
-        int teDataRight = (*pte)[ry][(*pte)[ry].size() - 1];
-        if (teDataRight == MAP_CO_DATA_BLOCK) {
-            
+        if ((*pTe)[ry][lSize - 1] <= MAP_AUTO_TE_DATA_MAX) {
+            int coDataRight = (*pCo)[ry][lSize - 1];
+            if (coDataRight == MAP_CO_DATA_BLOCK) {
+                coDataRight = getTeDirType(
+                    (*pCo)[ry][lSize - 2], 1, (*pCo)[ry - 1][lSize - 1], (*pCo)[ry + 1][lSize - 1],
+                    (*pCo)[ry - 1][lSize - 2], 1, 1, (*pCo)[ry + 1][lSize - 2]);
+                (*pTe)[ry][lSize - 1] = coDataRight;
+            }
         }
     }
 
     // 中间
-    for (int ry = 1; ry < pte->size() - 1; ry++) {
-        std::vector<int>* pteLine = &((*pte)[ry]);
-        for (int rx = 1; rx < pte->size() - 1; rx++) {
-            int teData = (*pteLine)[rx];
-            if (teData == MAP_CO_DATA_BLOCK) {
+    for (int ry = 1; ry < hSize - 1; ry++) {
+        std::vector<int>* pCoLine = &((*pCo)[ry]);
+        for (int rx = 1; rx < lSize - 1; rx++) {
+            if ((*pTe)[ry][rx] > MAP_AUTO_TE_DATA_MAX) continue;
+            
+            int coData = (*pCoLine)[rx];
+            if (coData == MAP_CO_DATA_BLOCK) {
+                coData = getTeDirType(
+                    (*pCo)[ry][rx - 1], (*pCo)[ry][rx + 1], (*pCo)[ry - 1][rx], (*pCo)[ry + 1][rx],
+                    (*pCo)[ry - 1][rx - 1], (*pCo)[ry - 1][rx + 1],
+                    (*pCo)[ry + 1][rx + 1], (*pCo)[ry + 1][rx - 1]);
+                (*pTe)[ry][rx] = coData;
             }
         }
     }
@@ -1993,6 +2038,8 @@ static void finishTeDir(MapTmpData* tmpData) {
 void MapCreator::finishFinalMap(MapTmpData* tmpData) {
     finishPlatBG(tmpData);
     finishTeDir(tmpData);
+    
+    printVecVecToFile(tmpData->finalMapData->te, "myMap/map.csv");
 }
 
 void MapCreator::saveToJsonFile(MapTmpData* tmpData) {
