@@ -381,8 +381,16 @@ enum class PipeBlockType {
 static const int MAP_CO_DATA_BLANK = 0;
 static const int MAP_CO_DATA_BLOCK = 1;
 static const int MAP_CO_DATA_PLAT = 19;
+
+static const int MAP_CO_DATA_PLAT_HEAD_L = 20;
+static const int MAP_CO_DATA_PLAT_HEAD = 21;
+static const int MAP_CO_DATA_PLAT_HEAD_R = 22;
+
+static const int MAP_CO_DATA_PLAT_BG_L = 23;
 static const int MAP_CO_DATA_PLAT_BG = 24;
-static const int MAP_AUTO_TE_DATA_MAX = 48; // 最大的自动地形，<=这个值的地形都是跟着碰撞走的，>的属于自定义
+static const int MAP_CO_DATA_PLAT_BG_R = 25;
+
+static const int MAP_AUTO_TE_DATA_MAX = 32; // 最大的自动地形，<=这个值的地形都是跟着碰撞走的，>的属于自定义
 
 class MapCreator {
 public:
@@ -1578,9 +1586,13 @@ static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, MapTm
                 } else if (finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_BLOCK) {
                     mapDataList[0] = MAP_CO_DATA_PLAT;
                     mapDataList[2] = MAP_CO_DATA_BLOCK;
-                } else if (finalMapData->co[realY - 1][beginX] == MAP_CO_DATA_PLAT_BG ||
+                } else if (
+                    finalMapData->co[realY - 1][beginX]     == MAP_CO_DATA_PLAT_BG ||
                     finalMapData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_BG ||
-                    finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_BG) {
+                    finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_BG ||
+                    finalMapData->co[realY - 1][beginX]     == MAP_CO_DATA_PLAT_HEAD ||
+                    finalMapData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_HEAD ||
+                    finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_HEAD) {
                     mapDataList[0] = MAP_CO_DATA_PLAT;
                     mapDataList[1] = MAP_CO_DATA_PLAT;
                     mapDataList[2] = MAP_CO_DATA_PLAT;
@@ -1858,7 +1870,43 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
 
 // 完善平台的背景
 static void finishPlatBG(MapTmpData* tmpData) {
+    std::vector<std::vector<int>>* pTe = &(tmpData->finalMapData->te);
     
+    for (int ry = 0; ry < pTe->size(); ry++) {
+        std::vector<int>* pTeLine = &(*pTe)[ry];
+        bool atPlat = false;
+        for (int rx = 0; rx < pTeLine->size(); rx++) {
+            int teData = (*pTeLine)[rx];
+            
+            // 因为tilemap里面只放head和bg就好，不能放左右，而且head一定在bg上面，所以只判断head就好
+            if (teData != MAP_CO_DATA_PLAT_HEAD) continue;
+            
+            int subData = -1;
+            if (!atPlat) {
+                atPlat = true;
+                (*pTe)[ry][rx] = MAP_CO_DATA_PLAT_HEAD_L;
+                subData = MAP_CO_DATA_PLAT_BG_L;
+
+            } else if ((*pTeLine)[rx + 1] != MAP_CO_DATA_PLAT_HEAD) { // +1不用判断出界，因为不可能
+                atPlat = false;
+                (*pTe)[ry][rx] = MAP_CO_DATA_PLAT_HEAD_R;
+                subData = MAP_CO_DATA_PLAT_BG_R;
+            }
+            
+            if (subData != -1) {
+                int ky = ry;
+                while (true) {
+                    ky++;
+                    int kData = (*pTe)[ky][rx];
+                    if (kData == MAP_CO_DATA_PLAT_BG) {
+                        (*pTe)[ky][rx] = subData;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 static std::map <int, int> teDirTypeMap = {
