@@ -211,12 +211,8 @@ public:
     std::vector<FiTemp*> fis; // 固定块
     std::vector<std::vector<int>> ra; // 随机块
 
-    int getNoEnemyPosX(int p) {
-        return p % NO_ENEMY_KEY;
-    }
-
-    int getNoEnemeyPosY(int p) {
-        return p - getNoEnemyPosX(p);
+    int getNoEnemyData(int x, int y) {
+        return y * NO_ENEMY_KEY + x;
     }
 };
 
@@ -380,6 +376,8 @@ enum class PipeBlockType {
 // tilemap中的地形和碰撞
 static const int MAP_CO_DATA_BLANK = 0;
 static const int MAP_CO_DATA_BLOCK = 1;
+static const int MAP_CO_DATA_BLOCK_UP = 3;
+
 static const int MAP_CO_DATA_PLAT = 19;
 
 static const int MAP_CO_DATA_PLAT_HEAD_L = 20;
@@ -2083,9 +2081,77 @@ static void finishTeDir(MapTmpData* tmpData) {
     }
 }
 
+static inline bool isTeGround(int teData) {
+    return teData == MAP_CO_DATA_PLAT ||
+        teData == MAP_CO_DATA_PLAT_HEAD ||
+        teData == MAP_CO_DATA_BLOCK_UP;
+}
+
+// 获取地面信息，生成spine
+static void handleGround(MapTmpData* tmpData) {
+    
+    // 准备出禁止生成位置的map
+    std::map<int, bool> noepMap;
+    for (int noep : tmpData->w_curTemp->noeps) {
+        noepMap[noep] = true;
+    }
+    
+    std::vector<std::vector<int>>* pTe = &(tmpData->finalMapData->te);
+    
+    // 最左右和最上3格不能有敌人
+    for (int ry = 3; ry < pTe->size(); ry++) {
+        std::vector<int>* pTeLine = &(*pTe)[ry];
+        for (int rx = 1; rx < pTeLine->size() - 1; rx++) {
+            int teData = (*pTeLine)[rx];
+            
+            if (!isTeGround(teData)) continue;
+            
+            int noepData = tmpData->w_curTemp->getNoEnemyData(rx, ry);
+            if (noepMap.find(noepData) != noepMap.end()) continue;
+                    
+            int teAboveAbove = (*pTe)[ry - 2][rx];
+            if (teAboveAbove != MAP_CO_DATA_BLANK) continue;
+            
+            // 地面数据放入
+            tmpData->finalMapData->groundInfos.push_back(rx);
+            tmpData->finalMapData->groundInfos.push_back(ry);
+            
+            int teL = (*pTe)[ry][rx - 1];
+            int teR = (*pTe)[ry][rx + 1];
+            
+            bool wide = isTeGround(teL) && isTeGround(teR);
+            bool high = ry > 4 && (*pTe)[ry - 3][rx] == MAP_CO_DATA_BLANK &&
+                (*pTe)[ry - 4][rx] == MAP_CO_DATA_BLANK;
+            
+            int groundType;
+            if (!wide && !high) {
+                groundType = 1;
+            } else if (wide) {
+                groundType = 2;
+            } else if (high) {
+                groundType = 3;
+            } else {
+                groundType = 4;
+            }
+            tmpData->finalMapData->groundInfos.push_back(groundType);
+        }
+    }
+    
+    // 生成spine
+    for (int ry = 3; ry < pTe->size(); ry++) {
+        std::vector<int>* pTeLine = &(*pTe)[ry];
+        for (int rx = 1; rx < pTeLine->size() - 1; rx++) {
+            int teData = (*pTeLine)[rx];
+            
+        }
+    }
+}
+
 void MapCreator::finishFinalMap(MapTmpData* tmpData) {
     finishPlatBG(tmpData);
     finishTeDir(tmpData);
+    
+    handleGround(tmpData);
     
     printVecVecToFile(tmpData->finalMapData->te, "myMap/map.csv");
 }
