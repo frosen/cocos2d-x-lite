@@ -134,6 +134,27 @@ public:
     int id;
 };
 
+// 随机瓦块替换
+class TileSubst {
+public:
+    TileSubst();
+    virtual ~TileSubst();
+    
+    int origin; // 原瓦块
+    int subst; // 替换成的瓦块
+    int ratio; // 替换百分比
+};
+
+// 区域的属性
+class AreaAttri {
+public:
+    AreaAttri();
+    virtual ~AreaAttri();
+    
+    int holeRatio; // hole占总地图的百分比
+    std::vector<TileSubst*> tileSubsts;
+};
+
 // 随机区域中使用的区块模板，从Base中扣出来
 class MapEle {
 public:
@@ -210,6 +231,9 @@ public:
     std::vector<int> noeps; // 无敌人位置（***每个int 为 x * NO_ENEMY_KEY + y 组成）
     std::vector<FiTemp*> fis; // 固定块
     std::vector<std::vector<int>> ra; // 随机块
+    
+    std::vector<SpineData*> spineList;
+    AreaAttri* areaAttri;
 
     int getNoEnemyData(int x, int y) {
         return y * NO_ENEMY_KEY + x;
@@ -226,6 +250,8 @@ public:
     std::vector<std::vector<int>> te; // 地形
     std::vector<std::vector<int>> co; // 碰撞
     std::vector<int> groundInfos; // 地面信息（***每3个int一组，分别是x，y，type）
+    
+    std::vector<SpineData*> spineList;
 };
 
 // 临时数据 ------------------------------------------------------------------
@@ -423,6 +449,9 @@ protected:
     void calcSpines(MapTmpData* tmpData);
     void createFinalMap(MapTmpData* tmpData);
     void finishFinalMap(MapTmpData* tmpData);
+    
+    void handleGround(MapTmpData* tmpData);
+    void createExtraPipeSpine(MapTmpData* tmpData);
 
     void saveToJsonFile(MapTmpData* tmpData);
 
@@ -462,12 +491,31 @@ SpineData::~SpineData() {
 
 // ---------------
 
+TileSubst::TileSubst() {
+}
+
+TileSubst::~TileSubst() {
+}
+
+// ---------------
+
+AreaAttri::AreaAttri() {
+}
+
+AreaAttri::~AreaAttri() {
+    for (TileSubst* tileSubst : tileSubsts) {
+        delete tileSubst;
+    }
+}
+
+// ---------------
+
 MapEle::MapEle() {
 }
 
 MapEle::~MapEle() {
-    for (SpineData* sp: spineList) {
-        delete sp;
+    for (SpineData* spineData: spineList) {
+        delete spineData;
     }
 }
 
@@ -496,6 +544,12 @@ MapTemp::~MapTemp() {
     for (FiTemp* fi: fis) {
         delete fi;
     }
+    
+    for (SpineData* spineData: spineList) {
+        delete spineData;
+    }
+    
+    delete areaAttri;
 }
 
 // ---------------
@@ -504,6 +558,9 @@ FinalMapData::FinalMapData() {
 }
 
 FinalMapData::~FinalMapData() {
+    for (SpineData* spineData : spineList) {
+        delete spineData;
+    }
 }
 
 // ---------------
@@ -655,6 +712,9 @@ void MapCreator::threadLoop() {
         calcSpines(tmpData);
         createFinalMap(tmpData);
         finishFinalMap(tmpData);
+        
+        handleGround(tmpData);
+        createExtraPipeSpine(tmpData);
 
         // mapData 保存到本地 todo
         saveToJsonFile(tmpData);
@@ -1429,7 +1489,17 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
 }
 
 void MapCreator::calcSpines(MapTmpData* tmpData) {
-    // hole中的旋转spine要有间隔
+    for (HoleData* holeData : tmpData->holeVec) {
+        int rxBegin = holeData->tX * 3 + 1;
+        int ryBegin = holeData->tY * 3;
+        for (SpineData* spineData : holeData->ele->spineList) {
+            SpineData* newData = new SpineData();
+            newData->id = spineData->id;
+            newData->x = spineData->x + rxBegin;
+            newData->y = spineData->y + ryBegin;
+            tmpData->finalMapData->spineList.push_back(newData);
+        }
+    }
 }
 
 static void createFinalMapForFi(MapTmpData* tmpData) {
@@ -2087,8 +2157,15 @@ static inline bool isTeGround(int teData) {
         teData == MAP_CO_DATA_BLOCK_UP;
 }
 
-// 获取地面信息，生成spine
-static void handleGround(MapTmpData* tmpData) {
+void MapCreator::finishFinalMap(MapTmpData* tmpData) {
+    finishPlatBG(tmpData);
+    finishTeDir(tmpData);
+    
+    printVecVecToFile(tmpData->finalMapData->te, "myMap/map.csv");
+}
+
+// 获取地面信息
+void MapCreator::handleGround(MapTmpData* tmpData) {
     
     // 准备出禁止生成位置的map
     std::map<int, bool> noepMap;
@@ -2108,7 +2185,7 @@ static void handleGround(MapTmpData* tmpData) {
             
             int noepData = tmpData->w_curTemp->getNoEnemyData(rx, ry);
             if (noepMap.find(noepData) != noepMap.end()) continue;
-                    
+            
             int teAboveAbove = (*pTe)[ry - 2][rx];
             if (teAboveAbove != MAP_CO_DATA_BLANK) continue;
             
@@ -2120,7 +2197,8 @@ static void handleGround(MapTmpData* tmpData) {
             int teR = (*pTe)[ry][rx + 1];
             
             bool wide = isTeGround(teL) && isTeGround(teR);
-            bool high = ry > 4 && (*pTe)[ry - 3][rx] == MAP_CO_DATA_BLANK &&
+            bool high = ry > 4 &&
+                (*pTe)[ry - 3][rx] == MAP_CO_DATA_BLANK &&
                 (*pTe)[ry - 4][rx] == MAP_CO_DATA_BLANK;
             
             int groundType;
@@ -2136,24 +2214,22 @@ static void handleGround(MapTmpData* tmpData) {
             tmpData->finalMapData->groundInfos.push_back(groundType);
         }
     }
-    
-    // 生成spine
-    for (int ry = 3; ry < pTe->size(); ry++) {
-        std::vector<int>* pTeLine = &(*pTe)[ry];
-        for (int rx = 1; rx < pTeLine->size() - 1; rx++) {
-            int teData = (*pTeLine)[rx];
-            
-        }
-    }
 }
 
-void MapCreator::finishFinalMap(MapTmpData* tmpData) {
-    finishPlatBG(tmpData);
-    finishTeDir(tmpData);
+// 之所以在最后是因为需要前面的数据
+// 包括凸起部分的旋转，
+void MapCreator::createExtraPipeSpine(MapTmpData* tmpData) {
     
-    handleGround(tmpData);
-    
-    printVecVecToFile(tmpData->finalMapData->te, "myMap/map.csv");
+//    std::vector<std::vector<int>>* pTe = &(tmpData->finalMapData->te);
+//
+//    // 生成spine
+//    for (int ry = 3; ry < pTe->size(); ry++) {
+//        std::vector<int>* pTeLine = &(*pTe)[ry];
+//        for (int rx = 1; rx < pTeLine->size() - 1; rx++) {
+//            int teData = (*pTeLine)[rx];
+//
+//        }
+//    }
 }
 
 void MapCreator::saveToJsonFile(MapTmpData* tmpData) {
