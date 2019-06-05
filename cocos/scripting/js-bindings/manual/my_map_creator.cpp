@@ -141,7 +141,7 @@ public:
     virtual ~TileSubst();
     
     int origin; // 原瓦块
-    int subst; // 替换成的瓦块
+    std::vector<int> substs; // 替换成的瓦块
     int ratio; // 替换百分比
 };
 
@@ -2289,20 +2289,20 @@ bool seval_to_vecvec(const se::Value& v, std::vector<std::vector<int>>* ret) {
         ok = obj->getArrayElement(i, &tmp);
         SE_PRECONDITION2(ok && tmp.isObject(), false, "error vecvec tmp");
 
-        se::Object* subobj = tmp.toObject();
-        assert(subobj->isArray());
+        se::Object* subObj = tmp.toObject();
+        assert(subObj->isArray());
 
-        uint32_t sublen = 0;
-        ok = subobj->getArrayLength(&sublen);
+        uint32_t subLen = 0;
+        ok = subObj->getArrayLength(&subLen);
         SE_PRECONDITION2(ok, false, "error vecvec sublen");
 
         std::vector<int> subVec;
-        se::Value subtmp;
-        for (uint32_t j = 0; j < sublen; ++j) {
-            ok = subobj->getArrayElement(j, &subtmp);
-            SE_PRECONDITION2(ok && subtmp.isNumber(), false, "error vecvec num");
+        se::Value subTmp;
+        for (uint32_t j = 0; j < subLen; ++j) {
+            ok = subObj->getArrayElement(j, &subTmp);
+            SE_PRECONDITION2(ok && subTmp.isNumber(), false, "error vecvec num");
 
-            int num = subtmp.toInt32();
+            int num = subTmp.toInt32();
             subVec.push_back(num);
         }
 
@@ -2343,6 +2343,29 @@ bool seval_to_mapelebase(const se::Value& v, MapEleBase* ret) {
     return true;
 }
 
+bool seval_to_spine(const se::Value& v, SpineData* spineData) {
+    bool ok;
+    se::Object* subobj = v.toObject();
+    
+    se::Value x;
+    se::Value y;
+    se::Value id;
+    
+    ok = subobj->getProperty("x", &x);
+    SE_PRECONDITION2(ok && x.isNumber(), false, "error spine x");
+    spineData->x = x.toInt32();
+    
+    ok = subobj->getProperty("y", &y);
+    SE_PRECONDITION2(ok && y.isNumber(), false, "error spine y");
+    spineData->y = y.toInt32();
+    
+    ok = subobj->getProperty("id", &id);
+    SE_PRECONDITION2(ok && id.isNumber(), false, "error spine id");
+    spineData->y = id.toInt32();
+    
+    return true;
+}
+
 bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     assert(v.isObject() && ret != nullptr);
     se::Object* obj = v.toObject();
@@ -2362,7 +2385,7 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     se::Value usingTXs;
     se::Value usingTYs;
     se::Value door;
-    se::Value spine;
+    se::Value spines;
 
     // index w h
     ok = obj->getArrayElement(0, &baseIndex);
@@ -2389,66 +2412,50 @@ bool seval_to_mapele(const se::Value& v, MapEle* ret) {
     ok = obj->getArrayElement(5, &door);
     SE_PRECONDITION2(ok && door.isObject(), false, "error door");
 
-    se::Object* doorobj = door.toObject();
-    assert(doorobj->isArray());
-    ok = doorobj->getArrayLength(&len);
+    se::Object* doorObj = door.toObject();
+    assert(doorObj->isArray());
+    ok = doorObj->getArrayLength(&len);
     SE_PRECONDITION2(ok, false, "error door len");
     assert(len == 4); // 上下左右，只能是4个
 
     for (uint32_t i = 0; i < len; ++i) {
-        ok = doorobj->getArrayElement(i, &tmp);
+        ok = doorObj->getArrayElement(i, &tmp);
         SE_PRECONDITION2(ok && tmp.isObject(), false, "error door tmp");
 
-        se::Object* subobj = tmp.toObject();
-        assert(subobj->isArray());
+        se::Object* subObj = tmp.toObject();
+        assert(subObj->isArray());
 
-        uint32_t sublen = 0;
-        ok = subobj->getArrayLength(&sublen);
+        uint32_t subLen = 0;
+        ok = subObj->getArrayLength(&subLen);
         SE_PRECONDITION2(ok, false, "error door sublen");
 
         std::vector<int> subVec;
-        se::Value subtmp;
-        for (uint32_t j = 0; j < sublen; ++j) {
-            ok = subobj->getArrayElement(j, &subtmp);
-            SE_PRECONDITION2(ok && subtmp.isNumber(), false, "error door sub tmp");
-            subVec.push_back(subtmp.toInt32());
+        se::Value subTmp;
+        for (uint32_t j = 0; j < subLen; ++j) {
+            ok = subObj->getArrayElement(j, &subTmp);
+            SE_PRECONDITION2(ok && subTmp.isNumber(), false, "error door sub tmp");
+            subVec.push_back(subTmp.toInt32());
         }
 
         ret->door[i] = subVec;
     }
     
-    // spine
-    ok = obj->getArrayElement(6, &spine);
-    SE_PRECONDITION2(ok && door.isObject(), false, "error spine");
+    // spines
+    ok = obj->getArrayElement(6, &spines);
+    SE_PRECONDITION2(ok && spines.isObject(), false, "error spine");
     
-    se::Object* spineobj = spine.toObject();
-    assert(spineobj->isArray());
-    ok = spineobj->getArrayLength(&len);
+    se::Object* spinesObj = spines.toObject();
+    assert(spinesObj->isArray());
+    ok = spinesObj->getArrayLength(&len);
     SE_PRECONDITION2(ok, false, "error spine len");
     
     for (uint32_t i = 0; i < len; ++i) {
-        ok = spineobj->getArrayElement(i, &tmp);
+        ok = spinesObj->getArrayElement(i, &tmp);
         SE_PRECONDITION2(ok && tmp.isObject(), false, "error spine tmp");
         
-        se::Object* subobj = tmp.toObject();
-        
-        se::Value x;
-        se::Value y;
-        se::Value id;
-        
         SpineData* spineData = new SpineData();
-        
-        ok = subobj->getProperty("x", &x);
-        SE_PRECONDITION2(ok && x.isNumber(), false, "error spine x");
-        spineData->x = x.toInt32();
-        
-        ok = subobj->getProperty("y", &y);
-        SE_PRECONDITION2(ok && y.isNumber(), false, "error spine y");
-        spineData->y = y.toInt32();
-        
-        ok = subobj->getProperty("id", &id);
-        SE_PRECONDITION2(ok && id.isNumber(), false, "error spine id");
-        spineData->y = id.toInt32();
+        ok = seval_to_spine(tmp, spineData);
+        SE_PRECONDITION2(ok, false, "error spine");
         
         ret->spineList.push_back(spineData);
     }
@@ -2526,30 +2533,30 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
     ok = obj->getProperty("door", &door);
     SE_PRECONDITION2(ok && door.isObject(), false, "error door");
 
-    se::Object* doorobj = door.toObject();
-    assert(doorobj->isArray());
-    ok = doorobj->getArrayLength(&len);
+    se::Object* doorObj = door.toObject();
+    assert(doorObj->isArray());
+    ok = doorObj->getArrayLength(&len);
     SE_PRECONDITION2(ok, false, "error door len");
     assert(len == 4); // 上下左右，只能是4个
 
     se::Value tmp;
     for (uint32_t i = 0; i < len; ++i) {
-        ok = doorobj->getArrayElement(i, &tmp);
+        ok = doorObj->getArrayElement(i, &tmp);
         SE_PRECONDITION2(ok && tmp.isObject(), false, "error door tmp");
 
-        se::Object* subobj = tmp.toObject();
-        assert(subobj->isArray());
+        se::Object* subObj = tmp.toObject();
+        assert(subObj->isArray());
 
-        uint32_t sublen = 0;
-        ok = subobj->getArrayLength(&sublen);
+        uint32_t subLen = 0;
+        ok = subObj->getArrayLength(&subLen);
         SE_PRECONDITION2(ok, false, "error door sublen");
 
         std::vector<int> subVec;
-        se::Value subtmp;
-        for (uint32_t j = 0; j < sublen; ++j) {
-            ok = subobj->getArrayElement(j, &subtmp);
-            SE_PRECONDITION2(ok && subtmp.isNumber(), false, "error door sub tmp");
-            subVec.push_back(subtmp.toInt32());
+        se::Value subTmp;
+        for (uint32_t j = 0; j < subLen; ++j) {
+            ok = subObj->getArrayElement(j, &subTmp);
+            SE_PRECONDITION2(ok && subTmp.isNumber(), false, "error door sub tmp");
+            subVec.push_back(subTmp.toInt32());
         }
 
         ret->door[i] = subVec;
@@ -2559,17 +2566,17 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
     ok = obj->getProperty("substitutes", &substitutes);
     SE_PRECONDITION2(ok && substitutes.isObject(), false, "error substitutes");
 
-    se::Object* substitutesobj = substitutes.toObject();
-    assert(substitutesobj->isArray());
-    ok = substitutesobj->getArrayLength(&len);
+    se::Object* substitutesObj = substitutes.toObject();
+    assert(substitutesObj->isArray());
+    ok = substitutesObj->getArrayLength(&len);
     SE_PRECONDITION2(ok, false, "error substitutes len");
     assert(len == 4); // 上下左右，只能是4个
 
-    se::Value substitutestmp;
+    se::Value substitutesTmp;
     for (uint32_t i = 0; i < len; ++i) {
-        ok = substitutesobj->getArrayElement(i, &substitutestmp);
-        SE_PRECONDITION2(ok && substitutestmp.isNumber(), false, "error substitutestmp sub tmp");
-        ret->substitutes[i] = substitutestmp.toInt32();
+        ok = substitutesObj->getArrayElement(i, &substitutesTmp);
+        SE_PRECONDITION2(ok && substitutesTmp.isNumber(), false, "error substitutestmp sub tmp");
+        ret->substitutes[i] = substitutesTmp.toInt32();
     }
 
     return true;
@@ -2584,6 +2591,8 @@ bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
     se::Value noeps;
     se::Value fis;
     se::Value ra;
+    se::Value spines;
+    se::Value attri;
 
     bool ok;
     uint32_t len = 0;
@@ -2616,9 +2625,9 @@ bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
     // fis
     ok = obj->getProperty("fis", &fis);
     SE_PRECONDITION2(ok && fis.isObject(), false, "error fis");
+    
     se::Object* fisObj = fis.toObject();
     assert(fisObj->isArray());
-
     ok = fisObj->getArrayLength(&len);
     SE_PRECONDITION2(ok, false, "error fisObj len");
 
@@ -2640,6 +2649,87 @@ bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
 
     ok = seval_to_vecvec(ra, &ret->ra);
     SE_PRECONDITION2(ok, false, "error ra res");
+    
+    // spines
+    ok = obj->getProperty("spines", &spines);
+    SE_PRECONDITION2(ok && spines.isObject(), false, "error spine");
+    
+    se::Object* spinesObj = spines.toObject();
+    assert(spinesObj->isArray());
+    ok = spinesObj->getArrayLength(&len);
+    SE_PRECONDITION2(ok, false, "error spine len");
+    
+    for (uint32_t i = 0; i < len; ++i) {
+        ok = spinesObj->getArrayElement(i, &tmp);
+        SE_PRECONDITION2(ok && tmp.isObject(), false, "error spine tmp");
+        
+        SpineData* spineData = new SpineData();
+        ok = seval_to_spine(tmp, spineData);
+        SE_PRECONDITION2(ok, false, "error spine");
+        
+        ret->spineList.push_back(spineData);
+    }
+    
+    // attri
+    ok = obj->getProperty("attri", &attri);
+    SE_PRECONDITION2(ok && attri.isObject(), false, "error attri");
+    
+    se::Object* attriObj = attri.toObject();
+    AreaAttri* attriData = new AreaAttri();
+    
+    se::Value holeRatio;
+    se::Value tileSubsts;
+    
+    ok = attriObj->getProperty("holeRatio", &holeRatio);
+    SE_PRECONDITION2(ok && holeRatio.isNumber(), false, "error holeRatio");
+    attriData->holeRatio = holeRatio.toInt32();
+    
+    ok = attriObj->getProperty("tileSubsts", &tileSubsts);
+    SE_PRECONDITION2(ok && tileSubsts.isObject(), false, "error tileSubsts");
+    
+    se::Object* tileSubstsObj = tileSubsts.toObject();
+    assert(tileSubstsObj->isArray());
+    ok = tileSubstsObj->getArrayLength(&len);
+    SE_PRECONDITION2(ok, false, "error tileSubstsObj len");
+    
+    for (uint32_t i = 0; i < len; ++i) {
+        ok = tileSubstsObj->getArrayElement(i, &tmp);
+        SE_PRECONDITION2(ok && tmp.isObject(), false, "error tileSubstsObj tmp");
+        
+        se::Object* substObj = tmp.toObject();
+        TileSubst* substData = new TileSubst();
+        
+        se::Value origin;
+        se::Value substs;
+        se::Value ratio;
+        
+        ok = substObj->getProperty("origin", &origin);
+        SE_PRECONDITION2(ok && origin.isNumber(), false, "error substObj origin");
+        substData->origin = origin.toInt32();
+        
+        ok = substObj->getProperty("substs", &substs);
+        SE_PRECONDITION2(ok && substs.isObject(), false, "error substObj substs");
+        
+        se::Object* substsObj = substs.toObject();
+        assert(substsObj->isArray());
+        ok = substsObj->getArrayLength(&len);
+        SE_PRECONDITION2(ok, false, "error substsObj len");
+        
+        se::Value substTmp;
+        for (uint32_t j = 0; j < len; ++j) {
+            ok = substsObj->getArrayElement(j, &substTmp);
+            SE_PRECONDITION2(ok && substTmp.isNumber(), false, "error substsObj tmp");
+            substData->substs.push_back(substTmp.toInt32());
+        }
+        
+        ok = substObj->getProperty("ratio", &ratio);
+        SE_PRECONDITION2(ok && ratio.isNumber(), false, "error substObj ratio");
+        substData->ratio = ratio.toInt32();
+
+        attriData->tileSubsts.push_back(substData);
+    }
+    
+    ret->areaAttri = attriData;
 
     return true;
 }
