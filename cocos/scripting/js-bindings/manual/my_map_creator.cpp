@@ -362,7 +362,7 @@ public:
     int tW;
     int tH;
 
-    std::vector<std::vector<int>> thumbMap;
+    std::vector<std::vector<int>> thumbArea;
     std::vector<HoleData*> holeVec;
     std::vector<PipeData*> pipeVec;
 
@@ -372,7 +372,7 @@ public:
 
 // 地图生成器 ----------------------------------------------------------------
 
-// thumb map的值
+// thumb area的值
 #define FI_HOLE_ID_BEGIN (1000)
 #define RA_HOLE_ID_BEGIN (2000)
 #define FI_EDGE_ID_BEGIN (100)
@@ -736,7 +736,7 @@ void MapCreator::initTmpData(AreaTmpData* tmpData) {
     tmpData->tH = (int)(tmpData->w_curTemp->ra.size());
 
     std::vector<std::vector<int>> copyRa(tmpData->w_curTemp->ra);
-    tmpData->thumbMap = std::move(copyRa);
+    tmpData->thumbArea = std::move(copyRa);
     
     std::vector<std::vector<int>> copyFinalCo(tmpData->tH * 3 + 1, std::vector<int>(tmpData->tW * 3 + 2, 1));
     tmpData->finalAreaData->co =std::move(copyFinalCo);
@@ -746,7 +746,7 @@ void MapCreator::initTmpData(AreaTmpData* tmpData) {
 }
 
 // 在地图上填数据 （无边缘检测）
-static void setMap(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
+static void fillArea(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
     for (int i = 0; i < edgeW; i++) {
         int curX = beginX + i;
         for (int j = 0; j < edgeH; j++) {
@@ -757,7 +757,7 @@ static void setMap(std::vector<std::vector<int>> &data, int beginX, int beginY, 
 }
 
 // 把地图空的地方填上数据 （带边缘检测）
-static void setBlankMap(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
+static void fillBlankArea(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
     int WMax = (int)data[0].size();
     int HMax = (int)data.size();
     for (int i = 0; i < edgeW; i++) {
@@ -778,7 +778,7 @@ static void setBlankMap(std::vector<std::vector<int>> &data, int beginX, int beg
 void MapCreator::digHole(AreaTmpData* tmpData) {
     int mapTW = tmpData->tW;
     int mapTH = tmpData->tH;
-    auto holeTMap = std::move(tmpData->thumbMap); // 右值引用，拉出来做处理，之后再放回去
+    auto holeTArea = std::move(tmpData->thumbArea); // 右值引用，拉出来做处理，之后再放回去
 
     int mapTMax = mapTW * mapTH;
     float holeRatio = 0.3; //llytodo 要从js传入
@@ -790,8 +790,8 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
     int fiIndex = -1;
     for (FiTemp* fi : tmpData->w_curTemp->fis) {
         fiIndex++;
-        setMap(holeTMap, fi->tX, fi->tY, fi->tW, fi->tH, FI_HOLE_ID_BEGIN + holeIndex);
-        setBlankMap(holeTMap, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + holeIndex); // 镶边
+        fillArea(holeTArea, fi->tX, fi->tY, fi->tW, fi->tH, FI_HOLE_ID_BEGIN + holeIndex);
+        fillBlankArea(holeTArea, fi->tX - 1, fi->tY - 1, fi->tW + 2, fi->tH + 2, FI_EDGE_ID_BEGIN + holeIndex); // 镶边
 
         auto holeData = new HoleData(fi->tX, fi->tY, fi->tW, fi->tH, HoleType::fi, holeIndex);
         holeData->fiIndex = fiIndex;
@@ -814,7 +814,7 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         // 随机获取一个位置
         int tx = getRandom(0, mapTW - 1);
         int ty = getRandom(0, mapTH - 1);
-        int value = holeTMap[ty][tx];
+        int value = holeTArea[ty][tx];
 
         if (value != 0) { // 如果所取位置已经使用过，则获取另一个位置，但保证尽量在有限的随机次数内完成
             tx = mapTW - 1 - tx; // 从对称位置开始
@@ -841,7 +841,7 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
                         }
                     }
                 }
-                value = holeTMap[ty][tx];
+                value = holeTArea[ty][tx];
                 if (value == 0) break;
             }
 
@@ -859,9 +859,9 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         int holeTW = 1;
         for (; holeTW < holeTWMax; holeTW++) {
             int subCurX = tx + holeTW * creatingDir;
-            if (subCurX < 0 || holeTMap[ty].size() <= subCurX) break;
+            if (subCurX < 0 || holeTArea[ty].size() <= subCurX) break;
 
-            int curValue = holeTMap[ty][subCurX];
+            int curValue = holeTArea[ty][subCurX];
             if (curValue == 0) curTX = subCurX;
             else break;
         }
@@ -870,9 +870,9 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         int holeTH = 1;
         for (; holeTH < holeTHMax; holeTH++) {
             int subCurY = ty + holeTH * creatingDir;
-            if (subCurY < 0 || holeTMap.size() <= subCurY) break;
+            if (subCurY < 0 || holeTArea.size() <= subCurY) break;
 
-            int curValue = holeTMap[subCurY][tx];
+            int curValue = holeTArea[subCurY][tx];
             if (curValue == 0) curTY = subCurY;
             else break;
         }
@@ -880,7 +880,7 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         // 检测另一边是否有阻挡
         for (int holeW2 = 1; holeW2 < holeTW; holeW2++) {
             int curX2 = tx + holeW2 * creatingDir;
-            int curValue = holeTMap[curTY][curX2];
+            int curValue = holeTArea[curTY][curX2];
             if (curValue == 0) curTX = curX2;
             else {
                 holeTW = holeW2;
@@ -890,7 +890,7 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
 
         for (int holeH2 = 1; holeH2 < holeTH; holeH2++) {
             int curY2 = ty + holeH2 * creatingDir;
-            int curValue = holeTMap[curY2][curTX];
+            int curValue = holeTArea[curY2][curTX];
             if (curValue == 0) curTY = curY2;
             else {
                 holeTH = holeH2;
@@ -905,7 +905,7 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
 
                 bool canExtand = true;
                 for (int i = 0; i < holeTH; i++) {
-                    if (holeTMap[ty + i * creatingDir][tx - creatingDir] != 0) {
+                    if (holeTArea[ty + i * creatingDir][tx - creatingDir] != 0) {
                         canExtand = false;
                         break;
                     }
@@ -923,7 +923,7 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
 
                 bool canExtand = true;
                 for (int i = 0; i < holeTW; i++) {
-                    if (holeTMap[ty - creatingDir][tx + i * creatingDir] != 0) {
+                    if (holeTArea[ty - creatingDir][tx + i * creatingDir] != 0) {
                         canExtand = false;
                         break;
                     }
@@ -938,8 +938,8 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         // 记录新hole
         int beginX = creatingDir > 0 ? tx : curTX;
         int beginY = creatingDir > 0 ? ty : curTY;
-        setMap(holeTMap, beginX, beginY, holeTW, holeTH, RA_HOLE_ID_BEGIN + holeIndex);
-        setBlankMap(holeTMap, beginX - 1, beginY - 1, holeTW + 2, holeTH + 2, RA_EDGE_ID_BEGIN + holeIndex); // 镶边
+        fillArea(holeTArea, beginX, beginY, holeTW, holeTH, RA_HOLE_ID_BEGIN + holeIndex);
+        fillBlankArea(holeTArea, beginX - 1, beginY - 1, holeTW + 2, holeTH + 2, RA_EDGE_ID_BEGIN + holeIndex); // 镶边
         tmpData->holeVec.push_back(new HoleData(beginX, beginY, holeTW, holeTH, HoleType::ra, holeIndex));
 
         // 检测是否完成
@@ -949,8 +949,8 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         holeIndex++;
     }
 
-    tmpData->thumbMap = std::move(holeTMap); // 处理后的数据放回原处
-    printVecVec(tmpData->thumbMap);
+    tmpData->thumbArea = std::move(holeTArea); // 处理后的数据放回原处
+    printVecVec(tmpData->thumbArea);
 }
 
 static HoleDirOffsetType calcHoleDirOffsetType(float myPos, float myHalf, float anoPos, float anoHalf) {
@@ -1399,9 +1399,9 @@ static void getEndPointPosition(AreaTmpData* tmpData, PipeEndPoint* endPoint, in
 }
 
 void MapCreator::digPipe(AreaTmpData* tmpData) {
-    std::vector<std::vector<int>> thumbMap = std::move(tmpData->thumbMap); // 右值引用，拉出来使用
-    int thumbMapWidth = (int)thumbMap[0].size();
-    int thumbMapHeight = (int)thumbMap.size();
+    std::vector<std::vector<int>> thumbArea = std::move(tmpData->thumbArea); // 右值引用，拉出来使用
+    int thumbAreaWidth = (int)thumbArea[0].size();
+    int thumbAreaHeight = (int)thumbArea.size();
 
     // 遍历所有管道，根据其两端门的位置，产生管道坐标
     int pipeIndex = -1;
@@ -1430,10 +1430,10 @@ void MapCreator::digPipe(AreaTmpData* tmpData) {
             curPosIndex++;
 
             // 记录pipe的点位
-            int curThumb = thumbMap[curY][curX];
+            int curThumb = thumbArea[curY][curX];
             if (curThumb < PIPE_ID_BEGIN) {
                 int idBegin = curPosIndex == 0 ? PIPE_FIRST_BLOCK_ID : PIPE_ID_BEGIN;
-                thumbMap[curY][curX] = idBegin + pipeIndex;
+                thumbArea[curY][curX] = idBegin + pipeIndex;
             }
 
             pipe->tXs.push_back(curX);
@@ -1467,12 +1467,12 @@ void MapCreator::digPipe(AreaTmpData* tmpData) {
                 int nextY = curY + yMove;
 
                 // 如果移动的一边是hole，则用另一边
-                if (nextX < 0 || thumbMapWidth <= nextX || nextY < 0 || thumbMapHeight <= nextY) {
+                if (nextX < 0 || thumbAreaWidth <= nextX || nextY < 0 || thumbAreaHeight <= nextY) {
                     nextX = curX + anoXMove;
                     nextY = curY + anoYMove;
                     pDirIsX = !pDirIsX;
                 } else {
-                    int nextThumb = thumbMap[nextY][nextX];
+                    int nextThumb = thumbArea[nextY][nextX];
                     if (nextThumb >= FI_HOLE_ID_BEGIN && nextThumb < PIPE_ID_BEGIN) {
                         nextX = curX + anoXMove;
                         nextY = curY + anoYMove;
@@ -1484,8 +1484,8 @@ void MapCreator::digPipe(AreaTmpData* tmpData) {
         }
     }
 
-    tmpData->thumbMap = std::move(thumbMap); // 处理后的数据放回原处
-    printVecVec(tmpData->thumbMap);
+    tmpData->thumbArea = std::move(thumbArea); // 处理后的数据放回原处
+    printVecVec(tmpData->thumbArea);
 }
 
 void MapCreator::calcSpines(AreaTmpData* tmpData) {
@@ -1633,14 +1633,14 @@ static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pip
             break;
     }
 
-    tmpData->thumbMap[tY][tX] = curTData + pipeIndex;
+    tmpData->thumbArea[tY][tX] = curTData + pipeIndex;
 }
 
 static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, AreaTmpData* tmpData, bool firstBlock) {
     int beginX = tX * 3 + 1;
     int beginY = tY * 3;
     FinalAreaData* finalAreaData = tmpData->finalAreaData;
-    int thumbMapType = PIPE_TYPE_0;
+    int thumbAreaType = PIPE_TYPE_0;
 
     for (int subHIndex = 0; subHIndex < 3; subHIndex++) {
         int realY = beginY + subHIndex;
@@ -1668,7 +1668,7 @@ static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, AreaT
                     if (ifInPercent(50)) {
                         mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
                     } else {
-                        thumbMapType = PIPE_TYPE_1; // 第0行未处理，使用第1行
+                        thumbAreaType = PIPE_TYPE_1; // 第0行未处理，使用第1行
                     }
                 }
             } else {
@@ -1676,7 +1676,7 @@ static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, AreaT
                 if (finalAreaData->co[realY - 1][beginX + 1] != MAP_CO_DATA_BLOCK) mapDataList[1] = MAP_CO_DATA_PLAT;
                 if (finalAreaData->co[realY - 1][beginX + 2] != MAP_CO_DATA_BLOCK) mapDataList[2] = MAP_CO_DATA_PLAT;
             }
-        } else if (subHIndex == 1 && thumbMapType == PIPE_TYPE_1) {
+        } else if (subHIndex == 1 && thumbAreaType == PIPE_TYPE_1) {
             mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
         }
         
@@ -1688,12 +1688,12 @@ static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, AreaT
         }
     }
 
-    tmpData->thumbMap[tY][tX] = thumbMapType + pipeIndex;
+    tmpData->thumbArea[tY][tX] = thumbAreaType + pipeIndex;
 }
 
 static void createFinalMapForPipe(AreaTmpData* tmpData) {
-    for (int tY = 0; tY < tmpData->thumbMap.size(); tY++) {
-        std::vector<int> tXList = tmpData->thumbMap[tY];
+    for (int tY = 0; tY < tmpData->thumbArea.size(); tY++) {
+        std::vector<int> tXList = tmpData->thumbArea[tY];
         for (int tX = 0; tX < tXList.size(); tX++) {
             int tData = tXList[tX];
             int pipeIndex = tData % PIPE_ID_BEGIN;
@@ -1706,7 +1706,7 @@ static void createFinalMapForPipe(AreaTmpData* tmpData) {
             } else {
                 bool firstPipeBlock = (tData - pipeIndex == PIPE_FIRST_BLOCK_ID);
                 
-                int tDataAbove = tmpData->thumbMap[tY - 1][tX];
+                int tDataAbove = tmpData->thumbArea[tY - 1][tX];
                 
                 bool connectedAbove = true; // 上边非连接，本块不用加跳台
                 if (tDataAbove >= PIPE_ID_BEGIN) {
@@ -1745,7 +1745,7 @@ static void createFinalMapForPipe(AreaTmpData* tmpData) {
                     fillFinalPipeBlockByType(PipeBlockType::plat2, tX, tY, pipeIndex, tmpData);
                     
                 } else { // tDataAbove == PIPE_TYPE_BLANK 空的话，还要看更上一层
-                    if (tY == 1 || tmpData->thumbMap[tY - 2][tX] < FI_HOLE_ID_BEGIN) {
+                    if (tY == 1 || tmpData->thumbArea[tY - 2][tX] < FI_HOLE_ID_BEGIN) {
                         PipeBlockType t = ifInPercent(66) ? PipeBlockType::blank : PipeBlockType::plat0;
                         fillFinalPipeBlockByType(t, tX, tY, pipeIndex, tmpData);
                     } else {
@@ -1765,8 +1765,8 @@ static void setFinalAreaDataBlank(AreaTmpData* tmpData, int x, int y) {
 
 // 给管道拓宽
 static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
-    for (int tY = 1; tY < tmpData->thumbMap.size(); tY++) { // 舍去第一行
-        std::vector<int> tXList = tmpData->thumbMap[tY];
+    for (int tY = 1; tY < tmpData->thumbArea.size(); tY++) { // 舍去第一行
+        std::vector<int> tXList = tmpData->thumbArea[tY];
         int beginY = tY * 3;
         for (int tX = 1; tX < tXList.size() - 1; tX++) { // 舍去左右的列
             int tData = tXList[tX];
@@ -1774,19 +1774,19 @@ static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
             if (tData != 0) continue;
             int beginX = tX * 3 + 1;
             
-            int wallAbove = tmpData->thumbMap[tY - 1][tX];
+            int wallAbove = tmpData->thumbArea[tY - 1][tX];
             
-            int leftData = tmpData->thumbMap[tY][tX - 1];
+            int leftData = tmpData->thumbArea[tY][tX - 1];
             bool leftIsPipe = leftData > PIPE_ID_BEGIN && leftData < USING_WALL_LEFT;
             
-            int rightData = tmpData->thumbMap[tY][tX + 1];
+            int rightData = tmpData->thumbArea[tY][tX + 1];
             bool rightIsPipe = rightData > PIPE_ID_BEGIN && rightData < USING_WALL_LEFT;
             int rKey = getRandom(1, 10);
 
             if (wallAbove == USING_WALL_LEFT) {
                 if (leftIsPipe) {
                     if (rKey <= 6) {
-                        tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
+                        tmpData->thumbArea[tY][tX] = USING_WALL_LEFT;
                         setFinalAreaDataBlank(tmpData, beginX, beginY);
                         setFinalAreaDataBlank(tmpData, beginX, beginY + 1);
                         setFinalAreaDataBlank(tmpData, beginX, beginY + 2);
@@ -1800,7 +1800,7 @@ static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
             } else if (wallAbove == USING_WALL_RIGHT) {
                 if (rightIsPipe) {
                     if (rKey <= 6) {
-                        tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
+                        tmpData->thumbArea[tY][tX] = USING_WALL_RIGHT;
                         setFinalAreaDataBlank(tmpData, beginX + 2, beginY);
                         setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 1);
                         setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 2);
@@ -1814,7 +1814,7 @@ static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
             } else if (PIPE_ID_BEGIN <= wallAbove && wallAbove < USING_WALL_LEFT) { // 上面是管道
                 if (leftIsPipe) {
                     if (rKey <= 3) {
-                        tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
+                        tmpData->thumbArea[tY][tX] = USING_WALL_LEFT;
                         setFinalAreaDataBlank(tmpData, beginX, beginY);
                         setFinalAreaDataBlank(tmpData, beginX, beginY + 1);
                         setFinalAreaDataBlank(tmpData, beginX, beginY + 2);
@@ -1823,7 +1823,7 @@ static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
                     }
                 } else if (rightIsPipe) {
                     if (rKey <= 3) {
-                        tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
+                        tmpData->thumbArea[tY][tX] = USING_WALL_RIGHT;
                         setFinalAreaDataBlank(tmpData, beginX + 2, beginY);
                         setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 1);
                         setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 2);
@@ -1834,12 +1834,12 @@ static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
             } else {
                 if (leftIsPipe) {
                     if (rKey <= 5) {
-                        tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
+                        tmpData->thumbArea[tY][tX] = USING_WALL_LEFT;
                         setFinalAreaDataBlank(tmpData, beginX, beginY + 2);
                     }
                 } else if (rightIsPipe) {
                     if (rKey <= 5) {
-                        tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
+                        tmpData->thumbArea[tY][tX] = USING_WALL_RIGHT;
                         setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 2);
                     }
                 }
@@ -1882,7 +1882,7 @@ static void finishHoleFirstLine(AreaTmpData* tmpData) {
                 
                 if (aboveDigging) {
                     int realTX = (realX - 1) / 3;
-                    int thumbDataAbove = tmpData->thumbMap[hole->tY - 1][realTX];
+                    int thumbDataAbove = tmpData->thumbArea[hole->tY - 1][realTX];
                     if (thumbDataAbove < FI_HOLE_ID_BEGIN || thumbDataAbove >= USING_WALL_LEFT) {
                         tmpData->finalAreaData->co[yAbove][realX] = MAP_CO_DATA_BLANK;
                         tmpData->finalAreaData->te[yAbove][realX] = MAP_CO_DATA_BLANK;
@@ -1908,7 +1908,7 @@ static void finishHoleFirstLine(AreaTmpData* tmpData) {
 }
 
 static void finishMapFirstLine(AreaTmpData* tmpData) {
-    std::vector<int> tXList = tmpData->thumbMap[0];
+    std::vector<int> tXList = tmpData->thumbArea[0];
     for (int tX = 0; tX < tXList.size(); tX++) {
         int tData = tXList[tX];
         if (tData >= FI_HOLE_ID_BEGIN && tData < RA_HOLE_ID_BEGIN) continue;
