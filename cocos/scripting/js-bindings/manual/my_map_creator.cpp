@@ -219,11 +219,11 @@ public:
 
 #define NO_ENEMY_KEY (1000)
 
-// 地图模板
-class MapTemp {
+// 地图区域模板
+class AreaTemp {
 public:
-    MapTemp();
-    virtual ~MapTemp();
+    AreaTemp();
+    virtual ~AreaTemp();
 
     int rW;
     int rH;
@@ -242,10 +242,10 @@ public:
 
 // 要发送到js的数据 -----------------------------------------------------------
 
-class FinalMapData {
+class FinalAreaData {
 public:
-    FinalMapData();
-    virtual ~FinalMapData();
+    FinalAreaData();
+    virtual ~FinalAreaData();
 
     std::vector<std::vector<int>> te; // 地形
     std::vector<std::vector<int>> co; // 碰撞
@@ -352,12 +352,12 @@ public:
     MapEle* ele;
 };
 
-class MapTmpData {
+class AreaTmpData {
 public:
-    MapTmpData();
-    virtual ~MapTmpData();
+    AreaTmpData();
+    virtual ~AreaTmpData();
 
-    FinalMapData* finalMapData;
+    FinalAreaData* finalAreaData;
 
     int tW;
     int tH;
@@ -367,7 +367,7 @@ public:
     std::vector<PipeData*> pipeVec;
 
     int curSceneKey;
-    MapTemp* w_curTemp; // 弱引用的当前地图模板
+    AreaTemp* w_curTemp; // 弱引用的当前地图模板
 };
 
 // 地图生成器 ----------------------------------------------------------------
@@ -429,31 +429,31 @@ public:
     void addMapEleIndexs(const int tW, const int tH, const int doorType, const int sceneKey, std::vector<int> &eleIndexs);
 
     // 读取模板
-    void addMapTemp(const int sceneKey, const MapTemp* mapTemp);
+    void addAreaTemp(const int sceneKey, const AreaTemp* areaTemp);
 
     // 生成地图，然后从回调传出
-    void createMap(const int sceneKey, const std::function<void(bool)>& callback);
+    void createArea(const int sceneKey, const std::function<void(bool)>& callback);
 
 protected:
     void init();
     void threadLoop();
 
-    void initTmpData(MapTmpData* tmpData);
-    void digHole(MapTmpData* tmpData);
-    void calcHoleRelation(MapTmpData* tmpData);
-    void connectAllHole(MapTmpData* tmpData);
-    void connectExtraHole(MapTmpData* tmpData);
-    void assignEleToHole(MapTmpData* tmpData);
-    void digPipe(MapTmpData* tmpData);
+    void initTmpData(AreaTmpData* tmpData);
+    void digHole(AreaTmpData* tmpData);
+    void calcHoleRelation(AreaTmpData* tmpData);
+    void connectAllHole(AreaTmpData* tmpData);
+    void connectExtraHole(AreaTmpData* tmpData);
+    void assignEleToHole(AreaTmpData* tmpData);
+    void digPipe(AreaTmpData* tmpData);
     
-    void calcSpines(MapTmpData* tmpData);
-    void createFinalMap(MapTmpData* tmpData);
-    void finishFinalMap(MapTmpData* tmpData);
+    void calcSpines(AreaTmpData* tmpData);
+    void createFinalArea(AreaTmpData* tmpData);
+    void finishFinalArea(AreaTmpData* tmpData);
     
-    void handleGround(MapTmpData* tmpData);
-    void createExtraPipeSpine(MapTmpData* tmpData);
+    void handleGround(AreaTmpData* tmpData);
+    void createExtraPipeSpine(AreaTmpData* tmpData);
 
-    void saveToJsonFile(MapTmpData* tmpData);
+    void saveToJsonFile(AreaTmpData* tmpData);
 
 private:
     bool _creating;
@@ -467,7 +467,7 @@ private:
     std::vector<MapEle*> _mapEleVec;
     MapEleList _mapEleList; // 不同场景Key对应的元素清单
 
-    std::map<int, MapTemp*> _mapTempMap; // 不同场景Key对应的地图模板
+    std::map<int, AreaTemp*> _areaTempMap; // 不同场景Key对应的地图模板
 
     int _curSceneKey;
     std::function<void(bool)> _callback;
@@ -537,10 +537,10 @@ FiTemp::~FiTemp() {
 
 // ---------------
 
-MapTemp::MapTemp() {
+AreaTemp::AreaTemp() {
 }
 
-MapTemp::~MapTemp() {
+AreaTemp::~AreaTemp() {
     for (FiTemp* fi: fis) {
         delete fi;
     }
@@ -554,10 +554,10 @@ MapTemp::~MapTemp() {
 
 // ---------------
 
-FinalMapData::FinalMapData() {
+FinalAreaData::FinalAreaData() {
 }
 
-FinalMapData::~FinalMapData() {
+FinalAreaData::~FinalAreaData() {
     for (SpineData* spineData : spineList) {
         delete spineData;
     }
@@ -604,11 +604,11 @@ HoleData::~HoleData() {
     }
 }
 
-MapTmpData::MapTmpData() {
-    finalMapData = new FinalMapData();
+AreaTmpData::AreaTmpData() {
+    finalAreaData = new FinalAreaData();
 }
 
-MapTmpData::~MapTmpData() {
+AreaTmpData::~AreaTmpData() {
     for (HoleData* hole: holeVec) {
         delete hole;
     }
@@ -616,7 +616,7 @@ MapTmpData::~MapTmpData() {
         delete pipe;
     }
 
-    delete finalMapData;
+    delete finalAreaData;
 }
 
 // ---------------
@@ -637,10 +637,10 @@ MapCreator::~MapCreator() {
         delete ele;
     }
 
-    std::map<int, MapTemp*>::iterator it2;
-    for(it2 = _mapTempMap.begin(); it2 != _mapTempMap.end();) {
+    std::map<int, AreaTemp*>::iterator it2;
+    for(it2 = _areaTempMap.begin(); it2 != _areaTempMap.end();) {
         delete it2->second;
-        _mapTempMap.erase(it2++);
+        _areaTempMap.erase(it2++);
     }
 }
 
@@ -668,11 +668,11 @@ void MapCreator::addMapEleIndexs(const int tW, const int tH, const int doorType,
     ptr->insert(ptr->end(), eleIndexs.begin(), eleIndexs.end());
 }
 
-void MapCreator::addMapTemp(const int sceneKey, const MapTemp* mapTemp) {
-    _mapTempMap[sceneKey] = const_cast<MapTemp*>(mapTemp);
+void MapCreator::addAreaTemp(const int sceneKey, const AreaTemp* areaTemp) {
+    _areaTempMap[sceneKey] = const_cast<AreaTemp*>(areaTemp);
 }
 
-void MapCreator::createMap(const int sceneKey, const std::function<void(bool)>& callback) {
+void MapCreator::createArea(const int sceneKey, const std::function<void(bool)>& callback) {
     if (_creating) return;
     _creating = true;
 
@@ -696,10 +696,10 @@ void MapCreator::threadLoop() {
 
         log("begin to create map");
 
-        MapTmpData* tmpData = new MapTmpData();
+        AreaTmpData* tmpData = new AreaTmpData();
 
         tmpData->curSceneKey = _curSceneKey;
-        tmpData->w_curTemp = _mapTempMap[_curSceneKey];
+        tmpData->w_curTemp = _areaTempMap[_curSceneKey];
 
         initTmpData(tmpData);
         digHole(tmpData);
@@ -710,8 +710,8 @@ void MapCreator::threadLoop() {
         digPipe(tmpData);
         
         calcSpines(tmpData);
-        createFinalMap(tmpData);
-        finishFinalMap(tmpData);
+        createFinalArea(tmpData);
+        finishFinalArea(tmpData);
         
         handleGround(tmpData);
         createExtraPipeSpine(tmpData);
@@ -731,7 +731,7 @@ void MapCreator::threadLoop() {
     }
 }
 
-void MapCreator::initTmpData(MapTmpData* tmpData) {
+void MapCreator::initTmpData(AreaTmpData* tmpData) {
     tmpData->tW = (int)(tmpData->w_curTemp->ra[0].size());
     tmpData->tH = (int)(tmpData->w_curTemp->ra.size());
 
@@ -739,10 +739,10 @@ void MapCreator::initTmpData(MapTmpData* tmpData) {
     tmpData->thumbMap = std::move(copyRa);
     
     std::vector<std::vector<int>> copyFinalCo(tmpData->tH * 3 + 1, std::vector<int>(tmpData->tW * 3 + 2, 1));
-    tmpData->finalMapData->co =std::move(copyFinalCo);
+    tmpData->finalAreaData->co =std::move(copyFinalCo);
     
     std::vector<std::vector<int>> copyFinalTe(tmpData->tH * 3 + 1, std::vector<int>(tmpData->tW * 3 + 2, 1));
-    tmpData->finalMapData->te =std::move(copyFinalTe);
+    tmpData->finalAreaData->te =std::move(copyFinalTe);
 }
 
 // 在地图上填数据 （无边缘检测）
@@ -775,7 +775,7 @@ static void setBlankMap(std::vector<std::vector<int>> &data, int beginX, int beg
     }
 }
 
-void MapCreator::digHole(MapTmpData* tmpData) {
+void MapCreator::digHole(AreaTmpData* tmpData) {
     int mapTW = tmpData->tW;
     int mapTH = tmpData->tH;
     auto holeTMap = std::move(tmpData->thumbMap); // 右值引用，拉出来做处理，之后再放回去
@@ -977,7 +977,7 @@ if ((myDis) > (checkDis)) { \
 } \
 
 // 计算出hole之间的关系
-void MapCreator::calcHoleRelation(MapTmpData* tmpData) {
+void MapCreator::calcHoleRelation(AreaTmpData* tmpData) {
     int myIndex = -1;
     for (HoleData* hole : tmpData->holeVec) {
         myIndex++;
@@ -1192,7 +1192,7 @@ static PipeEndPoint* createPipeEndPoint(HoleData* hole, HoleDir dir) {
     return endPoint;
 }
 
-static PipeData* createPipe(MapTmpData* tmpData, HoleRelation* relation) {
+static PipeData* createPipe(AreaTmpData* tmpData, HoleRelation* relation) {
     HoleData* my = tmpData->holeVec[relation->myHoleIndex];
     HoleData* another = tmpData->holeVec[relation->anoHoleIndex];
     HoleDir dir = relation->dir;
@@ -1204,9 +1204,9 @@ static PipeData* createPipe(MapTmpData* tmpData, HoleRelation* relation) {
     return pipe;
 }
 
-static void dealRelationPathForConnection(MapTmpData* tmpData, HoleRelation* relation, HoleData* anoHole);
+static void dealRelationPathForConnection(AreaTmpData* tmpData, HoleRelation* relation, HoleData* anoHole);
 
-static void dealEachRelationForConnection(MapTmpData* tmpData, HoleData* hole) {
+static void dealEachRelationForConnection(AreaTmpData* tmpData, HoleData* hole) {
     for (HoleRelation* relation : hole->relations) {
         HoleData* anoHole = tmpData->holeVec[relation->anoHoleIndex];
         if (anoHole->inCircuit) continue;
@@ -1214,7 +1214,7 @@ static void dealEachRelationForConnection(MapTmpData* tmpData, HoleData* hole) {
     }
 }
 
-static void dealRelationPathForConnection(MapTmpData* tmpData, HoleRelation* relation, HoleData* anoHole) {
+static void dealRelationPathForConnection(AreaTmpData* tmpData, HoleRelation* relation, HoleData* anoHole) {
     anoHole->inCircuit = true;
     HoleRelation* curRelation = relation;
     HoleRelation* oppRelation = nullptr; // 同一个pipe但记录在对面hole中的关系
@@ -1248,14 +1248,14 @@ static void dealRelationPathForConnection(MapTmpData* tmpData, HoleRelation* rel
 }
 
 // 根据关系，连接所有的hole，形成通路
-void MapCreator::connectAllHole(MapTmpData* tmpData) {
+void MapCreator::connectAllHole(AreaTmpData* tmpData) {
     HoleData* hole = tmpData->holeVec[0];
     hole->inCircuit = true;
     dealEachRelationForConnection(tmpData, hole);
 }
 
 // 生成额外的通路，使表现更丰富，通路可通可不通
-void MapCreator::connectExtraHole(MapTmpData* tmpData) {
+void MapCreator::connectExtraHole(AreaTmpData* tmpData) {
     std::vector<HoleRelation*> unusedRelations;
     std::set<int> unusedIndexKeySet;
     for (HoleData* hole : tmpData->holeVec) {
@@ -1330,7 +1330,7 @@ static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
     return EleDoorType::all;
 }
 
-void MapCreator::assignEleToHole(MapTmpData* tmpData) {
+void MapCreator::assignEleToHole(AreaTmpData* tmpData) {
     int sceneKey = tmpData->curSceneKey == 10 ? 0 : 1;
 
     for (HoleData* hole : tmpData->holeVec) {
@@ -1356,7 +1356,7 @@ static int getDoorDirIndexFromStraightDoorDir(int dir) {
     }
 }
 
-static void getEndPointPosition(MapTmpData* tmpData, PipeEndPoint* endPoint, int* tX, int* tY) {
+static void getEndPointPosition(AreaTmpData* tmpData, PipeEndPoint* endPoint, int* tX, int* tY) {
     HoleData* hole = tmpData->holeVec[endPoint->holeIndex];
 
     int doorDirIndex = getDoorDirIndexFromStraightDoorDir(endPoint->dir);
@@ -1398,7 +1398,7 @@ static void getEndPointPosition(MapTmpData* tmpData, PipeEndPoint* endPoint, int
     endPoint->tY = *tY;
 }
 
-void MapCreator::digPipe(MapTmpData* tmpData) {
+void MapCreator::digPipe(AreaTmpData* tmpData) {
     std::vector<std::vector<int>> thumbMap = std::move(tmpData->thumbMap); // 右值引用，拉出来使用
     int thumbMapWidth = (int)thumbMap[0].size();
     int thumbMapHeight = (int)thumbMap.size();
@@ -1488,7 +1488,7 @@ void MapCreator::digPipe(MapTmpData* tmpData) {
     printVecVec(tmpData->thumbMap);
 }
 
-void MapCreator::calcSpines(MapTmpData* tmpData) {
+void MapCreator::calcSpines(AreaTmpData* tmpData) {
     for (HoleData* holeData : tmpData->holeVec) {
         int rxBegin = holeData->tX * 3 + 1;
         int ryBegin = holeData->tY * 3;
@@ -1497,12 +1497,12 @@ void MapCreator::calcSpines(MapTmpData* tmpData) {
             newData->id = spineData->id;
             newData->x = spineData->x + rxBegin;
             newData->y = spineData->y + ryBegin;
-            tmpData->finalMapData->spineList.push_back(newData);
+            tmpData->finalAreaData->spineList.push_back(newData);
         }
     }
 }
 
-static void createFinalMapForFi(MapTmpData* tmpData) {
+static void createFinalMapForFi(AreaTmpData* tmpData) {
     for (FiTemp* fi : tmpData->w_curTemp->fis) {
         int beginFX = fi->rX;
         int beginFY = fi->rY;
@@ -1510,10 +1510,10 @@ static void createFinalMapForFi(MapTmpData* tmpData) {
         for (int x = 0; x < fi->rW; x++) {
             for (int y = 0; y < fi->rH; y++) {
                 int coData = fi->co[y][x];
-                tmpData->finalMapData->co[beginFY + y][beginFX + x] = coData;
+                tmpData->finalAreaData->co[beginFY + y][beginFX + x] = coData;
                 
                 int teData = fi->te[y][x];
-                tmpData->finalMapData->te[beginFY + y][beginFX + x] = teData;
+                tmpData->finalAreaData->te[beginFY + y][beginFX + x] = teData;
             }
         }
     }
@@ -1530,7 +1530,7 @@ static std::vector<int> getEveryDigit(const int num, const int size) {
     return list;
 }
 
-static void createFinalMapForHole(MapTmpData* tmpData, const std::vector<MapEleBase*> &mapEleBaseVec) {
+static void createFinalMapForHole(AreaTmpData* tmpData, const std::vector<MapEleBase*> &mapEleBaseVec) {
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->type == HoleType::fi) continue;
         
@@ -1560,8 +1560,8 @@ static void createFinalMapForHole(MapTmpData* tmpData, const std::vector<MapEleB
                         int realX = wIndex * 3 + subWIndex;
                         
                         int coData = base->co[realY][realX];
-                        tmpData->finalMapData->co[curFY][curFX] = coData;
-                        tmpData->finalMapData->te[curFY][curFX] = coData; // 这里的co和te是一样的，所以都用co
+                        tmpData->finalAreaData->co[curFY][curFX] = coData;
+                        tmpData->finalAreaData->te[curFY][curFX] = coData; // 这里的co和te是一样的，所以都用co
                         curFX++;
                     }
                 }
@@ -1573,7 +1573,7 @@ static void createFinalMapForHole(MapTmpData* tmpData, const std::vector<MapEleB
 }
 
 // 返回是否使用实地而不是平台
-static bool fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, int beginY, int pipeIndex, FinalMapData* finalMapData) {
+static bool fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, int beginY, int pipeIndex, FinalAreaData* finalAreaData) {
     int blockUsing = false;
     
     for (int subHIndex = 0; subHIndex < 3; subHIndex++) {
@@ -1592,40 +1592,40 @@ static bool fillFinalPipeBlockByPlatList(std::vector<int> platList, int beginX, 
         for (int subWIndex = 0; subWIndex < 3; subWIndex++) {
             int realX = beginX + subWIndex;
             int data = mapDataList[subWIndex];
-            finalMapData->co[realY][realX] = data;
-            finalMapData->te[realY][realX] = data;
+            finalAreaData->co[realY][realX] = data;
+            finalAreaData->te[realY][realX] = data;
         }
     }
     
     return blockUsing;
 }
 
-static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pipeIndex, MapTmpData* tmpData) {
+static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pipeIndex, AreaTmpData* tmpData) {
     int beginX = tX * 3 + 1;
     int beginY = tY * 3;
-    FinalMapData* finalMapData = tmpData->finalMapData;
+    FinalAreaData* finalAreaData = tmpData->finalAreaData;
     
     int curTData;
     bool blockUsing;
     switch (type) {
         case PipeBlockType::blank:
-            fillFinalPipeBlockByPlatList({}, beginX, beginY, pipeIndex, finalMapData);
+            fillFinalPipeBlockByPlatList({}, beginX, beginY, pipeIndex, finalAreaData);
             curTData = PIPE_TYPE_BLANK;
             break;
         case PipeBlockType::plat0:
-            blockUsing = fillFinalPipeBlockByPlatList({0}, beginX, beginY, pipeIndex, finalMapData);
+            blockUsing = fillFinalPipeBlockByPlatList({0}, beginX, beginY, pipeIndex, finalAreaData);
             curTData = blockUsing ? PIPE_TYPE_0_BLOCK : PIPE_TYPE_0;
             break;
         case PipeBlockType::plat1:
-            blockUsing = fillFinalPipeBlockByPlatList({1}, beginX, beginY, pipeIndex, finalMapData);
+            blockUsing = fillFinalPipeBlockByPlatList({1}, beginX, beginY, pipeIndex, finalAreaData);
             curTData = blockUsing ? PIPE_TYPE_1_BLOCK : PIPE_TYPE_1;
             break;
         case PipeBlockType::plat2:
-            blockUsing = fillFinalPipeBlockByPlatList({2}, beginX, beginY, pipeIndex, finalMapData);
+            blockUsing = fillFinalPipeBlockByPlatList({2}, beginX, beginY, pipeIndex, finalAreaData);
             curTData = blockUsing ? PIPE_TYPE_2_BLOCK : PIPE_TYPE_2;
             break;
         case PipeBlockType::plat02:
-            blockUsing = fillFinalPipeBlockByPlatList({0, 2}, beginX, beginY, pipeIndex, finalMapData);
+            blockUsing = fillFinalPipeBlockByPlatList({0, 2}, beginX, beginY, pipeIndex, finalAreaData);
             curTData = blockUsing ? PIPE_TYPE_2_BLOCK : PIPE_TYPE_2;
             break;
         default:
@@ -1636,10 +1636,10 @@ static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pip
     tmpData->thumbMap[tY][tX] = curTData + pipeIndex;
 }
 
-static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, MapTmpData* tmpData, bool firstBlock) {
+static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, AreaTmpData* tmpData, bool firstBlock) {
     int beginX = tX * 3 + 1;
     int beginY = tY * 3;
-    FinalMapData* finalMapData = tmpData->finalMapData;
+    FinalAreaData* finalAreaData = tmpData->finalAreaData;
     int thumbMapType = PIPE_TYPE_0;
 
     for (int subHIndex = 0; subHIndex < 3; subHIndex++) {
@@ -1648,19 +1648,19 @@ static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, MapTm
         
         if (subHIndex == 0) {
             if (firstBlock) {
-                if (finalMapData->co[realY - 1][beginX] == MAP_CO_DATA_BLOCK) {
+                if (finalAreaData->co[realY - 1][beginX] == MAP_CO_DATA_BLOCK) {
                     mapDataList[2] = MAP_CO_DATA_PLAT;
                     mapDataList[0] = MAP_CO_DATA_BLOCK;
-                } else if (finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_BLOCK) {
+                } else if (finalAreaData->co[realY - 1][beginX + 2] == MAP_CO_DATA_BLOCK) {
                     mapDataList[0] = MAP_CO_DATA_PLAT;
                     mapDataList[2] = MAP_CO_DATA_BLOCK;
                 } else if (
-                    finalMapData->co[realY - 1][beginX]     == MAP_CO_DATA_PLAT_BG ||
-                    finalMapData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_BG ||
-                    finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_BG ||
-                    finalMapData->co[realY - 1][beginX]     == MAP_CO_DATA_PLAT_HEAD ||
-                    finalMapData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_HEAD ||
-                    finalMapData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_HEAD) {
+                    finalAreaData->co[realY - 1][beginX]     == MAP_CO_DATA_PLAT_BG ||
+                    finalAreaData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_BG ||
+                    finalAreaData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_BG ||
+                    finalAreaData->co[realY - 1][beginX]     == MAP_CO_DATA_PLAT_HEAD ||
+                    finalAreaData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_HEAD ||
+                    finalAreaData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_HEAD) {
                     mapDataList[0] = MAP_CO_DATA_PLAT;
                     mapDataList[1] = MAP_CO_DATA_PLAT;
                     mapDataList[2] = MAP_CO_DATA_PLAT;
@@ -1672,9 +1672,9 @@ static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, MapTm
                     }
                 }
             } else {
-                if (finalMapData->co[realY - 1][beginX] != MAP_CO_DATA_BLOCK) mapDataList[0] = MAP_CO_DATA_PLAT;
-                if (finalMapData->co[realY - 1][beginX + 1] != MAP_CO_DATA_BLOCK) mapDataList[1] = MAP_CO_DATA_PLAT;
-                if (finalMapData->co[realY - 1][beginX + 2] != MAP_CO_DATA_BLOCK) mapDataList[2] = MAP_CO_DATA_PLAT;
+                if (finalAreaData->co[realY - 1][beginX] != MAP_CO_DATA_BLOCK) mapDataList[0] = MAP_CO_DATA_PLAT;
+                if (finalAreaData->co[realY - 1][beginX + 1] != MAP_CO_DATA_BLOCK) mapDataList[1] = MAP_CO_DATA_PLAT;
+                if (finalAreaData->co[realY - 1][beginX + 2] != MAP_CO_DATA_BLOCK) mapDataList[2] = MAP_CO_DATA_PLAT;
             }
         } else if (subHIndex == 1 && thumbMapType == PIPE_TYPE_1) {
             mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
@@ -1683,15 +1683,15 @@ static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, MapTm
         for (int subWIndex = 0; subWIndex < 3; subWIndex++) {
             int realX = beginX + subWIndex;
             int data = mapDataList[subWIndex];
-            finalMapData->co[realY][realX] = data;
-            finalMapData->te[realY][realX] = data;
+            finalAreaData->co[realY][realX] = data;
+            finalAreaData->te[realY][realX] = data;
         }
     }
 
     tmpData->thumbMap[tY][tX] = thumbMapType + pipeIndex;
 }
 
-static void createFinalMapForPipe(MapTmpData* tmpData) {
+static void createFinalMapForPipe(AreaTmpData* tmpData) {
     for (int tY = 0; tY < tmpData->thumbMap.size(); tY++) {
         std::vector<int> tXList = tmpData->thumbMap[tY];
         for (int tX = 0; tX < tXList.size(); tX++) {
@@ -1758,13 +1758,13 @@ static void createFinalMapForPipe(MapTmpData* tmpData) {
     }
 }
 
-static void setFinalMapDataBlank(MapTmpData* tmpData, int x, int y) {
-    tmpData->finalMapData->co[y][x] = MAP_CO_DATA_BLANK;
-    tmpData->finalMapData->te[y][x] = MAP_CO_DATA_BLANK;
+static void setFinalAreaDataBlank(AreaTmpData* tmpData, int x, int y) {
+    tmpData->finalAreaData->co[y][x] = MAP_CO_DATA_BLANK;
+    tmpData->finalAreaData->te[y][x] = MAP_CO_DATA_BLANK;
 }
 
 // 给管道拓宽
-static void createFinalMapForWidePipe(MapTmpData* tmpData) {
+static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
     for (int tY = 1; tY < tmpData->thumbMap.size(); tY++) { // 舍去第一行
         std::vector<int> tXList = tmpData->thumbMap[tY];
         int beginY = tY * 3;
@@ -1787,60 +1787,60 @@ static void createFinalMapForWidePipe(MapTmpData* tmpData) {
                 if (leftIsPipe) {
                     if (rKey <= 6) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
-                        setFinalMapDataBlank(tmpData, beginX, beginY);
-                        setFinalMapDataBlank(tmpData, beginX, beginY + 1);
-                        setFinalMapDataBlank(tmpData, beginX, beginY + 2);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY + 1);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY + 2);
                     } else if (rKey <= 8) {
-                        setFinalMapDataBlank(tmpData, beginX, beginY);
-                        setFinalMapDataBlank(tmpData, beginX, beginY + 1);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY + 1);
                     } else {
-                        setFinalMapDataBlank(tmpData, beginX, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY);
                     }
                 }
             } else if (wallAbove == USING_WALL_RIGHT) {
                 if (rightIsPipe) {
                     if (rKey <= 6) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY);
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 1);
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 2);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 1);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 2);
                     } else if (rKey <= 8) {
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY);
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 1);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 1);
                     } else {
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY);
                     }
                 }
             } else if (PIPE_ID_BEGIN <= wallAbove && wallAbove < USING_WALL_LEFT) { // 上面是管道
                 if (leftIsPipe) {
                     if (rKey <= 3) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
-                        setFinalMapDataBlank(tmpData, beginX, beginY);
-                        setFinalMapDataBlank(tmpData, beginX, beginY + 1);
-                        setFinalMapDataBlank(tmpData, beginX, beginY + 2);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY + 1);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY + 2);
                     } else if (rKey <= 6) {
-                        setFinalMapDataBlank(tmpData, beginX, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY);
                     }
                 } else if (rightIsPipe) {
                     if (rKey <= 3) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY);
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 1);
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 2);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 1);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 2);
                     } else if (rKey <= 6) {
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY);
                     }
                 }
             } else {
                 if (leftIsPipe) {
                     if (rKey <= 5) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_LEFT;
-                        setFinalMapDataBlank(tmpData, beginX, beginY + 2);
+                        setFinalAreaDataBlank(tmpData, beginX, beginY + 2);
                     }
                 } else if (rightIsPipe) {
                     if (rKey <= 5) {
                         tmpData->thumbMap[tY][tX] = USING_WALL_RIGHT;
-                        setFinalMapDataBlank(tmpData, beginX + 2, beginY + 2);
+                        setFinalAreaDataBlank(tmpData, beginX + 2, beginY + 2);
                     }
                 }
             }
@@ -1848,7 +1848,7 @@ static void createFinalMapForWidePipe(MapTmpData* tmpData) {
     }
 }
 
-static void finishHoleFirstLine(MapTmpData* tmpData) {
+static void finishHoleFirstLine(AreaTmpData* tmpData) {
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->tY == 0) continue;
         
@@ -1866,10 +1866,10 @@ static void finishHoleFirstLine(MapTmpData* tmpData) {
 
         for (int x = 0; x < height; x++) {
             int realX = beginX + x;
-            int data = tmpData->finalMapData->co[beginY][realX];
+            int data = tmpData->finalAreaData->co[beginY][realX];
             if (data != MAP_CO_DATA_BLANK) continue;
 
-            int dataAbove = tmpData->finalMapData->co[yAbove][realX];
+            int dataAbove = tmpData->finalAreaData->co[yAbove][realX];
             
             if (dataAbove == MAP_CO_DATA_BLANK) {
                 if (blank == false) {
@@ -1884,8 +1884,8 @@ static void finishHoleFirstLine(MapTmpData* tmpData) {
                     int realTX = (realX - 1) / 3;
                     int thumbDataAbove = tmpData->thumbMap[hole->tY - 1][realTX];
                     if (thumbDataAbove < FI_HOLE_ID_BEGIN || thumbDataAbove >= USING_WALL_LEFT) {
-                        tmpData->finalMapData->co[yAbove][realX] = MAP_CO_DATA_BLANK;
-                        tmpData->finalMapData->te[yAbove][realX] = MAP_CO_DATA_BLANK;
+                        tmpData->finalAreaData->co[yAbove][realX] = MAP_CO_DATA_BLANK;
+                        tmpData->finalAreaData->te[yAbove][realX] = MAP_CO_DATA_BLANK;
                     }
                 }
             }
@@ -1900,14 +1900,14 @@ static void finishHoleFirstLine(MapTmpData* tmpData) {
             
             for (int x : platXVec) {
                 if (x < 0) continue;
-                tmpData->finalMapData->co[beginY][x] = MAP_CO_DATA_PLAT;
-                tmpData->finalMapData->te[beginY][x] = MAP_CO_DATA_PLAT;
+                tmpData->finalAreaData->co[beginY][x] = MAP_CO_DATA_PLAT;
+                tmpData->finalAreaData->te[beginY][x] = MAP_CO_DATA_PLAT;
             }
         }
     }
 }
 
-static void finishMapFirstLine(MapTmpData* tmpData) {
+static void finishMapFirstLine(AreaTmpData* tmpData) {
     std::vector<int> tXList = tmpData->thumbMap[0];
     for (int tX = 0; tX < tXList.size(); tX++) {
         int tData = tXList[tX];
@@ -1916,13 +1916,13 @@ static void finishMapFirstLine(MapTmpData* tmpData) {
         int beginX = tX * 3 + 1;
         for (int subWIndex = 0; subWIndex < 3; subWIndex++) {
             int realX = beginX + subWIndex;
-            tmpData->finalMapData->co[0][realX] = MAP_CO_DATA_BLOCK;
-            tmpData->finalMapData->te[0][realX] = MAP_CO_DATA_BLOCK;
+            tmpData->finalAreaData->co[0][realX] = MAP_CO_DATA_BLOCK;
+            tmpData->finalAreaData->te[0][realX] = MAP_CO_DATA_BLOCK;
         }
     }
 }
 
-void MapCreator::createFinalMap(MapTmpData* tmpData) {
+void MapCreator::createFinalArea(AreaTmpData* tmpData) {
     createFinalMapForFi(tmpData);
     createFinalMapForHole(tmpData, _mapEleBaseVec);
     
@@ -1932,13 +1932,13 @@ void MapCreator::createFinalMap(MapTmpData* tmpData) {
     finishHoleFirstLine(tmpData);
     finishMapFirstLine(tmpData);
     
-//    printVecVecToFile(tmpData->finalMapData->co, "myMap/mapCo.csv");
-//    printVecVecToFile(tmpData->finalMapData->te, "myMap/mapTe.csv");
+//    printVecVecToFile(tmpData->finalAreaData->co, "myMap/mapCo.csv");
+//    printVecVecToFile(tmpData->finalAreaData->te, "myMap/mapTe.csv");
 }
 
 // 完善平台的背景
-static void finishPlatBG(MapTmpData* tmpData) {
-    std::vector<std::vector<int>>* pTe = &(tmpData->finalMapData->te);
+static void finishPlatBG(AreaTmpData* tmpData) {
+    std::vector<std::vector<int>>* pTe = &(tmpData->finalAreaData->te);
     
     for (int ry = 0; ry < pTe->size(); ry++) {
         std::vector<int>* pTeLine = &(*pTe)[ry];
@@ -2063,9 +2063,9 @@ static int getTeDirType(int lef, int rig, int top, int bot, int leto, int rito, 
 }
 
 // 地形要根据周围的地形做出调整
-static void finishTeDir(MapTmpData* tmpData) {
-    std::vector<std::vector<int>>* pCo = &(tmpData->finalMapData->co); // 根据碰撞进行变化，所以取co
-    std::vector<std::vector<int>>* pTe = &(tmpData->finalMapData->te);
+static void finishTeDir(AreaTmpData* tmpData) {
+    std::vector<std::vector<int>>* pCo = &(tmpData->finalAreaData->co); // 根据碰撞进行变化，所以取co
+    std::vector<std::vector<int>>* pTe = &(tmpData->finalAreaData->te);
 
     // 上下
     std::vector<int>* pHeadLine = &((*pCo)[0]);
@@ -2157,15 +2157,15 @@ static inline bool isTeGround(int teData) {
         teData == MAP_CO_DATA_BLOCK_UP;
 }
 
-void MapCreator::finishFinalMap(MapTmpData* tmpData) {
+void MapCreator::finishFinalArea(AreaTmpData* tmpData) {
     finishPlatBG(tmpData);
     finishTeDir(tmpData);
     
-    printVecVecToFile(tmpData->finalMapData->te, "myMap/map.csv");
+    printVecVecToFile(tmpData->finalAreaData->te, "myMap/map.csv");
 }
 
 // 获取地面信息
-void MapCreator::handleGround(MapTmpData* tmpData) {
+void MapCreator::handleGround(AreaTmpData* tmpData) {
     
     // 准备出禁止生成位置的map
     std::map<int, bool> noepMap;
@@ -2173,7 +2173,7 @@ void MapCreator::handleGround(MapTmpData* tmpData) {
         noepMap[noep] = true;
     }
     
-    std::vector<std::vector<int>>* pTe = &(tmpData->finalMapData->te);
+    std::vector<std::vector<int>>* pTe = &(tmpData->finalAreaData->te);
     
     // 最左右和最上3格不能有敌人
     for (int ry = 3; ry < pTe->size(); ry++) {
@@ -2190,8 +2190,8 @@ void MapCreator::handleGround(MapTmpData* tmpData) {
             if (teAboveAbove != MAP_CO_DATA_BLANK) continue;
             
             // 地面数据放入
-            tmpData->finalMapData->groundInfos.push_back(rx);
-            tmpData->finalMapData->groundInfos.push_back(ry);
+            tmpData->finalAreaData->groundInfos.push_back(rx);
+            tmpData->finalAreaData->groundInfos.push_back(ry);
             
             int teL = (*pTe)[ry][rx - 1];
             int teR = (*pTe)[ry][rx + 1];
@@ -2211,16 +2211,16 @@ void MapCreator::handleGround(MapTmpData* tmpData) {
             } else {
                 groundType = 4;
             }
-            tmpData->finalMapData->groundInfos.push_back(groundType);
+            tmpData->finalAreaData->groundInfos.push_back(groundType);
         }
     }
 }
 
 // 之所以在最后是因为需要前面的数据
 // 包括凸起部分的旋转，
-void MapCreator::createExtraPipeSpine(MapTmpData* tmpData) {
+void MapCreator::createExtraPipeSpine(AreaTmpData* tmpData) {
     
-//    std::vector<std::vector<int>>* pTe = &(tmpData->finalMapData->te);
+//    std::vector<std::vector<int>>* pTe = &(tmpData->finalAreaData->te);
 //
 //    // 生成spine
 //    for (int ry = 3; ry < pTe->size(); ry++) {
@@ -2232,7 +2232,7 @@ void MapCreator::createExtraPipeSpine(MapTmpData* tmpData) {
 //    }
 }
 
-void MapCreator::saveToJsonFile(MapTmpData* tmpData) {
+void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     rapidjson::Document writedoc;
     writedoc.SetObject();
     rapidjson::Document::AllocatorType& allocator = writedoc.GetAllocator();
@@ -2582,7 +2582,7 @@ bool seval_to_fitemp(const se::Value& v, FiTemp* ret) {
     return true;
 }
 
-bool seval_to_maptemp(const se::Value& v, MapTemp* ret) {
+bool seval_to_maptemp(const se::Value& v, AreaTemp* ret) {
     assert(v.isObject() && ret != nullptr);
     se::Object* obj = v.toObject();
 
@@ -2833,34 +2833,34 @@ static bool jsb_my_MapCreator_addMapEleIndexs(se::State& s) {
 }
 SE_BIND_FUNC(jsb_my_MapCreator_addMapEleIndexs);
 
-static bool jsb_my_MapCreator_addMapTemp(se::State& s) {
+static bool jsb_my_MapCreator_addAreaTemp(se::State& s) {
     MapCreator* cobj = (MapCreator*)s.nativeThisObject();
-    SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_addMapEle : Invalid Native Object");
+    SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_addAreaTemp : Invalid Native Object");
 
     const auto& args = s.args();
     size_t argc = args.size();
     CC_UNUSED bool ok = true;
     if (argc == 2) {
         int arg0 = 0;
-        MapTemp* arg1 = new MapTemp();
+        AreaTemp* arg1 = new AreaTemp();
 
         ok &= seval_to_int32(args[0], (int32_t*)&arg0);
-        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 0");
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addAreaTemp : Error processing arguments 0");
 
         ok &= seval_to_maptemp(args[1], arg1);
-        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 1");
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_addAreaTemp : Error processing arguments 1");
 
-        cobj->addMapTemp(arg0, arg1);
+        cobj->addAreaTemp(arg0, arg1);
         return true;
     }
     SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 2);
     return false;
 }
-SE_BIND_FUNC(jsb_my_MapCreator_addMapTemp)
+SE_BIND_FUNC(jsb_my_MapCreator_addAreaTemp)
 
-static bool jsb_my_MapCreator_createMap(se::State& s) {
+static bool jsb_my_MapCreator_createArea(se::State& s) {
     MapCreator* cobj = (MapCreator*)s.nativeThisObject();
-    SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_addMapEle : Invalid Native Object");
+    SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_createArea : Invalid Native Object");
 
     const auto& args = s.args();
     size_t argc = args.size();
@@ -2870,7 +2870,7 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
         std::function<void(bool)> arg1 = nullptr;
 
         ok &= seval_to_int32(args[0], (int32_t*)&arg0);
-        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments 0");
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createArea : Error processing arguments 0");
 
         do {
             if (args[1].isObject() && args[1].toObject()->isFunction()) {
@@ -2899,15 +2899,15 @@ static bool jsb_my_MapCreator_createMap(se::State& s) {
             }
         } while(false);
 
-        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createMap : Error processing arguments");
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createArea : Error processing arguments");
 
-        cobj->createMap(arg0, arg1);
+        cobj->createArea(arg0, arg1);
         return true;
     }
     SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 2);
     return false;
 }
-SE_BIND_FUNC(jsb_my_MapCreator_createMap)
+SE_BIND_FUNC(jsb_my_MapCreator_createArea)
 
 bool register_my_map_creator(se::Object* obj) {
     // 命名空间
@@ -2927,8 +2927,8 @@ bool register_my_map_creator(se::Object* obj) {
     cls->defineFunction("addMapEleBase", _SE(jsb_my_MapCreator_addMapEleBase));
     cls->defineFunction("addMapEle", _SE(jsb_my_MapCreator_addMapEle));
     cls->defineFunction("addMapEleIndexs", _SE(jsb_my_MapCreator_addMapEleIndexs));
-    cls->defineFunction("addMapTemp", _SE(jsb_my_MapCreator_addMapTemp));
-    cls->defineFunction("createMap", _SE(jsb_my_MapCreator_createMap));
+    cls->defineFunction("addAreaTemp", _SE(jsb_my_MapCreator_addAreaTemp));
+    cls->defineFunction("createArea", _SE(jsb_my_MapCreator_createArea));
     cls->install();
     JSBClassType::registerClass<MapCreator>(cls);
 
