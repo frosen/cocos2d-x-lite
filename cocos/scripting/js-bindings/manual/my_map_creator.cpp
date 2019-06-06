@@ -129,8 +129,8 @@ public:
     SpineData();
     virtual ~SpineData();
     
-    int x;
-    int y;
+    int pX;
+    int pY;
     int id;
 };
 
@@ -415,6 +415,8 @@ static const int MAP_CO_DATA_PLAT_BG = 24;
 static const int MAP_CO_DATA_PLAT_BG_R = 25;
 
 static const int MAP_AUTO_TE_DATA_MAX = 32; // 最大的自动地形，<=这个值的地形都是跟着碰撞走的，>的属于自定义
+
+static const int TileLength = 32;
 
 class MapCreator {
 public:
@@ -1362,16 +1364,16 @@ static void getEndPointPosition(AreaTmpData* tmpData, PipeEndPoint* endPoint, in
     HoleData* hole = tmpData->holeVec[endPoint->holeIndex];
 
     int doorDirIndex = getDoorDirIndexFromStraightDoorDir(endPoint->dir);
-    std::vector<int> doorPosList;
+    std::vector<int>* doorPosList;
     if (hole->type == HoleType::fi) {
-        doorPosList = tmpData->w_curTemp->fis[hole->fiIndex]->door[doorDirIndex];
+        doorPosList = &tmpData->w_curTemp->fis[hole->fiIndex]->door[doorDirIndex];
     } else {
-        doorPosList = hole->ele->door[doorDirIndex];
+        doorPosList = &hole->ele->door[doorDirIndex];
     }
 
     // 随机选择一个门的位置
-    int doorIndex = getRandom(0, (int)doorPosList.size() - 1);
-    int doorPos = doorPosList[doorIndex];
+    int doorIndex = getRandom(0, (int)doorPosList->size() - 1);
+    int doorPos = (*doorPosList)[doorIndex];
 
     // 根据pipe终端的方向不同（也就是对应hole的方向），已经hole的位置，确定终端的方向
     switch (endPoint->dir) {
@@ -1494,13 +1496,13 @@ void MapCreator::calcSpines(AreaTmpData* tmpData) {
     for (HoleData* holeData : tmpData->holeVec) {
         if (holeData->type == HoleType::fi) continue;
         
-        int rxBegin = holeData->tX * 3 + 1;
-        int ryBegin = holeData->tY * 3;
+        int pxBegin = (holeData->tX * 3 + 1) * TileLength;
+        int pyBegin = (holeData->tY * 3) * TileLength;
         for (SpineData* spineData : holeData->ele->spineList) {
             SpineData* newData = new SpineData();
             newData->id = spineData->id;
-            newData->x = spineData->x + rxBegin;
-            newData->y = spineData->y + ryBegin;
+            newData->pX = spineData->pX + pxBegin;
+            newData->pY = spineData->pY + pyBegin;
             tmpData->finalAreaData->spineList.push_back(newData);
         }
     }
@@ -2278,28 +2280,83 @@ void MapCreator::addRandomTile(AreaTmpData* tmpData) {
 }
 
 void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
-    rapidjson::Document writedoc;
-    writedoc.SetObject();
-    rapidjson::Document::AllocatorType& allocator = writedoc.GetAllocator();
-    rapidjson::Value array(rapidjson::kArrayType);
-    rapidjson::Value object(rapidjson::kObjectType);
+    FinalAreaData* finalData = tmpData->finalAreaData;
+    
+    rapidjson::Document finalDataDoc;
+    finalDataDoc.SetObject();
+    rapidjson::Document::AllocatorType& allocator = finalDataDoc.GetAllocator();
 
-    // json object 格式添加 “名称/值” 对
-    object.AddMember("inttag", 1, allocator);
-    object.AddMember("doubletag", 1.0, allocator);
-    object.AddMember("booltag", true, allocator);
-    object.AddMember("hellotag", "helloworld", allocator);
+    std::vector<std::vector<int>>* pCo = &(finalData->co);
+    
+    // wh
+    int rW = (int)(*pCo)[0].size();
+    finalDataDoc.AddMember("rW", rW, allocator);
+    int rH = (int)pCo->size();
+    finalDataDoc.AddMember("rH", rH, allocator);
+    
+    // co
+    rapidjson::Value coDoc(rapidjson::kArrayType);
 
-    // json 加入数组
-    array.PushBack(11, allocator);
+    for (int ry = 0; ry < pCo->size(); ry++) {
+        std::vector<int>* pCoLine = &(*pCo)[ry];
+        rapidjson::Value coLineDoc(rapidjson::kArrayType);
+        for (int rx = 0; rx < pCoLine->size(); rx++) {
+            int coData = (*pCoLine)[rx];
+            coLineDoc.PushBack(coData, allocator);
+        }
+        coDoc.PushBack(coLineDoc, allocator);
+    }
 
-    // json object 格式添加 “名称/值” 对
-    writedoc.AddMember("json", object, allocator);
-    writedoc.AddMember("array", array, allocator);
+    finalDataDoc.AddMember("co", coDoc, allocator);
 
+    // te
+    std::vector<std::vector<int>>* pTe = &(finalData->te);
+    rapidjson::Value teDoc(rapidjson::kArrayType);
+
+    for (int ry = 0; ry < pTe->size(); ry++) {
+        std::vector<int>* pTeLine = &(*pTe)[ry];
+        rapidjson::Value teLineDoc(rapidjson::kArrayType);
+        for (int rx = 0; rx < pTeLine->size(); rx++) {
+            int teData = (*pTeLine)[rx];
+            teLineDoc.PushBack(teData, allocator);
+        }
+        teDoc.PushBack(teLineDoc, allocator);
+    }
+
+    finalDataDoc.AddMember("te", teDoc, allocator);
+
+    // groundInfos
+    std::vector<int>* groundInfos = &(finalData->groundInfos);
+    rapidjson::Value groundInfoDoc(rapidjson::kArrayType);
+
+    for (int index = 0; index < groundInfos->size(); index++) {
+        int info = (*groundInfos)[index];
+        groundInfoDoc.PushBack(info, allocator);
+    }
+
+    finalDataDoc.AddMember("groundInfos", groundInfoDoc, allocator);
+    
+    // spines
+    std::vector<SpineData*>* spineList = &(finalData->spineList);
+    rapidjson::Value spinesDoc(rapidjson::kArrayType);
+
+    for (int index = 0; index < spineList->size(); index++) {
+        SpineData* spineData = (*spineList)[index];
+        rapidjson::Value spineDoc(rapidjson::kObjectType);
+
+        spineDoc.AddMember("pX", spineData->pX, allocator);
+        spineDoc.AddMember("pY", spineData->pY, allocator);
+        spineDoc.AddMember("id", spineData->id, allocator);
+
+        spinesDoc.PushBack(spineDoc, allocator);
+    }
+    
+    finalDataDoc.AddMember("spines", spinesDoc, allocator);
+
+    // 导出
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    writedoc.Accept(writer);
+    finalDataDoc.Accept(writer);
 
     log("%s", buffer.GetString());
 
@@ -2392,21 +2449,21 @@ bool seval_to_spine(const se::Value& v, SpineData* spineData) {
     bool ok;
     se::Object* subobj = v.toObject();
     
-    se::Value x;
-    se::Value y;
+    se::Value pX;
+    se::Value pY;
     se::Value id;
     
-    ok = subobj->getProperty("x", &x);
-    SE_PRECONDITION2(ok && x.isNumber(), false, "error spine x");
-    spineData->x = x.toInt32();
+    ok = subobj->getProperty("pX", &pX);
+    SE_PRECONDITION2(ok && pX.isNumber(), false, "error spine x");
+    spineData->pX = pX.toInt32();
     
-    ok = subobj->getProperty("y", &y);
-    SE_PRECONDITION2(ok && y.isNumber(), false, "error spine y");
-    spineData->y = y.toInt32();
+    ok = subobj->getProperty("pY", &pY);
+    SE_PRECONDITION2(ok && pY.isNumber(), false, "error spine y");
+    spineData->pY = pY.toInt32();
     
     ok = subobj->getProperty("id", &id);
     SE_PRECONDITION2(ok && id.isNumber(), false, "error spine id");
-    spineData->y = id.toInt32();
+    spineData->id = id.toInt32();
     
     return true;
 }
