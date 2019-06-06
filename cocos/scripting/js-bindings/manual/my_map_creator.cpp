@@ -452,6 +452,7 @@ protected:
     
     void handleGround(AreaTmpData* tmpData);
     void createExtraPipeSpine(AreaTmpData* tmpData);
+    void addRandomTile(AreaTmpData* tmpData);
 
     void saveToJsonFile(AreaTmpData* tmpData);
 
@@ -715,6 +716,7 @@ void MapCreator::threadLoop() {
         
         handleGround(tmpData);
         createExtraPipeSpine(tmpData);
+        addRandomTile(tmpData);
 
         // mapData 保存到本地 todo
         saveToJsonFile(tmpData);
@@ -1490,6 +1492,8 @@ void MapCreator::digPipe(AreaTmpData* tmpData) {
 
 void MapCreator::calcSpines(AreaTmpData* tmpData) {
     for (HoleData* holeData : tmpData->holeVec) {
+        if (holeData->type == HoleType::fi) continue;
+        
         int rxBegin = holeData->tX * 3 + 1;
         int ryBegin = holeData->tY * 3;
         for (SpineData* spineData : holeData->ele->spineList) {
@@ -1499,6 +1503,10 @@ void MapCreator::calcSpines(AreaTmpData* tmpData) {
             newData->y = spineData->y + ryBegin;
             tmpData->finalAreaData->spineList.push_back(newData);
         }
+    }
+    
+    for (SpineData* spineData : tmpData->w_curTemp->spineList) {
+        tmpData->finalAreaData->spineList.push_back(spineData);
     }
 }
 
@@ -2230,6 +2238,43 @@ void MapCreator::createExtraPipeSpine(AreaTmpData* tmpData) {
 //
 //        }
 //    }
+}
+
+static int* originTilePosNumList = new int[16384];
+
+void MapCreator::addRandomTile(AreaTmpData* tmpData) {
+    std::vector<TileSubst*> tileSubsts = tmpData->w_curTemp->areaAttri->tileSubsts;
+    std::vector<std::vector<int>>* pTe = &(tmpData->finalAreaData->te);
+
+    int KEY = 1000;
+
+    for (TileSubst* tileSubst: tileSubsts) {
+        int origin = tileSubst->origin;
+        int tileSize = 0;
+        for (int ry = 1; ry < pTe->size(); ry++) {
+            std::vector<int>* pTeLine = &(*pTe)[ry];
+            for (int rx = 1; rx < pTeLine->size() - 1; rx++) {
+                int teData = (*pTeLine)[rx];
+                if (teData == origin) {
+                    originTilePosNumList[tileSize] = ry * KEY + rx;
+                    tileSize++;
+                }
+            }
+        }
+
+        int randomSize = tileSize * tileSubst->ratio / 100;
+        std::vector<int> substs = tileSubst->substs;
+        int substSize = (int)substs.size();
+        for (int _ = 0; _ < randomSize; _++) {
+            int random = getRandom(0, tileSize - 1);
+            int originTileNum = originTilePosNumList[random];
+            int ry = originTileNum / KEY;
+            int rx = originTileNum % KEY;
+
+            int subst = substs[getRandom(0, substSize - 1)];
+            (*pTe)[ry][rx] = subst;
+        }
+    }
 }
 
 void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
