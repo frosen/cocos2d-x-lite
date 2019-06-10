@@ -95,7 +95,8 @@ static void getReadyForRandom() {
     int seed = abs(timeSeed - abs(ptrSeed));
     printf("s = %d (%d, %d)\n", seed, timeSeed, ptrSeed);
 
-    randomEngine->seed(1557623694);
+    // 1557623694
+    randomEngine->seed(1667623667);
 }
 
 static inline int getRandom(int from, int to) {
@@ -413,6 +414,9 @@ static const int MAP_CO_DATA_PLAT_HEAD_R = 22;
 static const int MAP_CO_DATA_PLAT_BG_L = 23;
 static const int MAP_CO_DATA_PLAT_BG = 24;
 static const int MAP_CO_DATA_PLAT_BG_R = 25;
+
+static const int MAP_CO_DATA_PLAT_HEAD_SINGLE = 26;
+static const int MAP_CO_DATA_PLAT_BG_SINGLE = 27;
 
 static const int MAP_AUTO_TE_DATA_MAX = 32; // 最大的自动地形，<=这个值的地形都是跟着碰撞走的，>的属于自定义
 
@@ -1950,9 +1954,6 @@ void MapCreator::createFinalArea(AreaTmpData* tmpData) {
     
     finishHoleFirstLine(tmpData);
     finishMapFirstLine(tmpData);
-    
-//    printVecVecToFile(tmpData->finalAreaData->co, "myMap/mapCo.csv");
-//    printVecVecToFile(tmpData->finalAreaData->te, "myMap/mapTe.csv");
 }
 
 // 完善平台的背景
@@ -1970,10 +1971,14 @@ static void finishPlatBG(AreaTmpData* tmpData) {
             
             int subData = -1;
             if (!atPlat) {
-                atPlat = true;
-                (*pTe)[ry][rx] = MAP_CO_DATA_PLAT_HEAD_L;
-                subData = MAP_CO_DATA_PLAT_BG_L;
-
+                if ((*pTeLine)[rx + 1] != MAP_CO_DATA_PLAT_HEAD) { // 这是一个独立柱
+                    (*pTe)[ry][rx] = MAP_CO_DATA_PLAT_HEAD_SINGLE;
+                    subData = MAP_CO_DATA_PLAT_BG_SINGLE;
+                } else {
+                    atPlat = true;
+                    (*pTe)[ry][rx] = MAP_CO_DATA_PLAT_HEAD_L;
+                    subData = MAP_CO_DATA_PLAT_BG_L;
+                }
             } else if ((*pTeLine)[rx + 1] != MAP_CO_DATA_PLAT_HEAD) { // +1不用判断出界，因为不可能
                 atPlat = false;
                 (*pTe)[ry][rx] = MAP_CO_DATA_PLAT_HEAD_R;
@@ -2179,8 +2184,6 @@ static inline bool isTeGround(int teData) {
 void MapCreator::finishFinalArea(AreaTmpData* tmpData) {
     finishPlatBG(tmpData);
     finishTeDir(tmpData);
-    
-    printVecVecToFile(tmpData->finalAreaData->te, "myMap/map.csv");
 }
 
 // 获取地面信息
