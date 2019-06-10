@@ -1571,7 +1571,16 @@ static void createFinalMapForHole(AreaTmpData* tmpData, const std::vector<MapEle
                         
                         int coData = base->co[realY][realX];
                         tmpData->finalAreaData->co[curFY][curFX] = coData;
-                        tmpData->finalAreaData->te[curFY][curFX] = coData; // 这里的co和te是一样的，所以都用co
+                        
+                        // 这里的te和co是一样的，但特殊co可能超过512，此时其后两位就是特
+                        int teData;
+                        if (coData > 512) {
+                            teData = coData % 100;
+                        } else {
+                            teData = coData;
+                        }
+                        tmpData->finalAreaData->te[curFY][curFX] = teData;
+                        
                         curFX++;
                     }
                 }
@@ -2279,6 +2288,34 @@ void MapCreator::addRandomTile(AreaTmpData* tmpData) {
     }
 }
 
+static inline int encryptKey(int v, int key) {
+    return (v + 1) << (key % 3); // coData有可能为0，所以+1保证每次都有变化
+}
+
+// 创建密码
+static int createAreaKey(AreaTmpData* tmpData) {
+    FinalAreaData* finalData = tmpData->finalAreaData;
+    std::vector<std::vector<int>>* pCo = &(finalData->co);
+    int keyW = (int)(*pCo)[0].size() - 3;
+    int keyH = (int)pCo->size() - 3;
+    int key = 0;
+    for (int ry = 3; ry < keyH; ry++) {
+        std::vector<int>* pCoLine = &(*pCo)[ry];
+        for (int rx = 3; rx < keyW; rx++) {
+            int coData = (*pCoLine)[rx];
+            key += encryptKey(coData, key);
+        }
+    }
+    
+    for (SpineData* spineData: finalData->spineList) {
+        key += encryptKey(spineData->pX, key);
+        key += encryptKey(spineData->pY, key);
+        key += encryptKey(spineData->id, key);
+    }
+    
+    return key;
+}
+
 void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     FinalAreaData* finalData = tmpData->finalAreaData;
     
@@ -2352,6 +2389,10 @@ void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     }
     
     finalDataDoc.AddMember("spines", spinesDoc, allocator);
+    
+    // area key
+    int areaKey = createAreaKey(tmpData);
+    finalDataDoc.AddMember("ak", areaKey, allocator);
 
     // 导出
     rapidjson::StringBuffer buffer;
@@ -2359,6 +2400,9 @@ void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     finalDataDoc.Accept(writer);
 
     log("%s", buffer.GetString());
+    
+    printVecVecToFile(tmpData->finalAreaData->co, "myMap/mapCo.csv");
+    printVecVecToFile(tmpData->finalAreaData->te, "myMap/mapTe.csv");
 
 //    auto path = FileUtils::getInstance()->getWritablePath();
 //    path.append("myhero.json");
