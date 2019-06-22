@@ -1502,7 +1502,7 @@ void MapCreator::calcSpines(AreaTmpData* tmpData) {
         if (holeData->type == HoleType::fi) continue;
         
         int pxBegin = (holeData->tX * 3 + 1) * TileLength;
-        int pyBegin = (holeData->tY * 3) * TileLength;
+        int pyBegin = ((tmpData->tH - holeData->tY - holeData->tH) * 3 + 1) * TileLength; // py和ry的方向是相反的
         for (SpineData* spineData : holeData->ele->spineList) {
             SpineData* newData = new SpineData();
             newData->id = spineData->id;
@@ -2212,9 +2212,9 @@ void MapCreator::handleGround(AreaTmpData* tmpData) {
             int teAboveAbove = (*pTe)[ry - 2][rx];
             if (teAboveAbove != MAP_CO_DATA_BLANK) continue;
             
-            // 地面数据放入
-            tmpData->finalAreaData->groundInfos.push_back(rx);
-            tmpData->finalAreaData->groundInfos.push_back(ry);
+            // 地面数据放入（当前地面的anchor 0.5 1 的像素位置）
+            tmpData->finalAreaData->groundInfos.push_back(rx * TileLength + TileLength * 0.5);
+            tmpData->finalAreaData->groundInfos.push_back((tmpData->tH * 3 - ry + 1) * TileLength + 1); // tmpData->tH * 3 + 1 - ry - 1
             
             int teL = (*pTe)[ry][rx - 1];
             int teR = (*pTe)[ry][rx + 1];
