@@ -724,7 +724,7 @@ void MapCreator::threadLoop() {
         createExtraPipeSpine(tmpData);
         addRandomTile(tmpData);
 
-        // mapData 保存到本地 todo
+        // mapData 保存到本地
         saveToJsonFile(tmpData);
 
         // 释放
@@ -788,10 +788,6 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
     int mapTH = tmpData->tH;
     auto holeTArea = std::move(tmpData->thumbArea); // 右值引用，拉出来做处理，之后再放回去
 
-    int mapTMax = mapTW * mapTH;
-    float holeRatio = 0.3; //llytodo 要从js传入
-    int holeBlockSize = (int)((float)mapTMax * holeRatio);
-
     int holeIndex = 0;
 
     // 处理固定块 并把固定块镶边
@@ -812,19 +808,26 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         holeIndex++;
     }
 
+    int mapTMax = mapTW * mapTH;
+    float holeRatio = (float)tmpData->w_curTemp->areaAttri->holeRatio * 0.01f;
+    int holeBlockSize = (int)((float)mapTMax * holeRatio);
+
     // 开始挖坑
     int creatingDir = -1; // 挖坑方向
 
     while (true) {
+        // 检测完成挖坑
+        if (holeBlockSize <= 0) break;
+
         // 反转挖坑方向，为了让效果更平均，所以从不同的方向挖倔
         creatingDir *= -1;
 
         // 随机获取一个位置
         int tx = getRandom(0, mapTW - 1);
         int ty = getRandom(0, mapTH - 1);
-        int value = holeTArea[ty][tx];
+        int tValue = holeTArea[ty][tx];
 
-        if (value != 0) { // 如果所取位置已经使用过，则获取另一个位置，但保证尽量在有限的随机次数内完成
+        if (tValue != 0) { // 如果所取位置已经使用过，则获取另一个位置，但保证尽量在有限的随机次数内完成
             tx = mapTW - 1 - tx; // 从对称位置开始
             ty = mapTH - 1 - ty;
             bool needContinue = false;
@@ -849,8 +852,8 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
                         }
                     }
                 }
-                value = holeTArea[ty][tx];
-                if (value == 0) break;
+                tValue = holeTArea[ty][tx];
+                if (tValue == 0) break;
             }
 
             if (needContinue) continue;
@@ -886,22 +889,22 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         }
 
         // 检测另一边是否有阻挡
-        for (int holeW2 = 1; holeW2 < holeTW; holeW2++) {
-            int curX2 = tx + holeW2 * creatingDir;
+        for (int holeTW2 = 1; holeTW2 < holeTW; holeTW2++) {
+            int curX2 = tx + holeTW2 * creatingDir;
             int curValue = holeTArea[curTY][curX2];
             if (curValue == 0) curTX = curX2;
             else {
-                holeTW = holeW2;
+                holeTW = holeTW2;
                 break;
             }
         }
 
-        for (int holeH2 = 1; holeH2 < holeTH; holeH2++) {
-            int curY2 = ty + holeH2 * creatingDir;
+        for (int holeTH2 = 1; holeTH2 < holeTH; holeTH2++) {
+            int curY2 = ty + holeTH2 * creatingDir;
             int curValue = holeTArea[curY2][curTX];
             if (curValue == 0) curTY = curY2;
             else {
-                holeTH = holeH2;
+                holeTH = holeTH2;
                 break;
             }
         }
@@ -944,16 +947,14 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
         }
 
         // 记录新hole
-        int beginX = creatingDir > 0 ? tx : curTX;
-        int beginY = creatingDir > 0 ? ty : curTY;
-        fillArea(holeTArea, beginX, beginY, holeTW, holeTH, RA_HOLE_ID_BEGIN + holeIndex);
-        fillBlankArea(holeTArea, beginX - 1, beginY - 1, holeTW + 2, holeTH + 2, RA_EDGE_ID_BEGIN + holeIndex); // 镶边
-        tmpData->holeVec.push_back(new HoleData(beginX, beginY, holeTW, holeTH, HoleType::ra, holeIndex));
+        int beginTX = creatingDir > 0 ? tx : curTX;
+        int beginTY = creatingDir > 0 ? ty : curTY;
+        fillArea(holeTArea, beginTX, beginTY, holeTW, holeTH, RA_HOLE_ID_BEGIN + holeIndex);
+        fillBlankArea(holeTArea, beginTX - 1, beginTY - 1, holeTW + 2, holeTH + 2, RA_EDGE_ID_BEGIN + holeIndex); // 镶边
+        tmpData->holeVec.push_back(new HoleData(beginTX, beginTY, holeTW, holeTH, HoleType::ra, holeIndex));
 
-        // 检测是否完成
+        // 记录
         holeBlockSize -= (holeTW * holeTH);
-        if (holeBlockSize <= 0) break;
-
         holeIndex++;
     }
 
@@ -990,8 +991,8 @@ void MapCreator::calcHoleRelation(AreaTmpData* tmpData) {
     for (HoleData* hole : tmpData->holeVec) {
         myIndex++;
 
-        float halfTW = (float)hole->tW / 2;
-        float halfTH = (float)hole->tH / 2;
+        float halfTW = (float)hole->tW * 0.5f;
+        float halfTH = (float)hole->tH * 0.5f;
         float centerTX = (float)hole->tX + halfTW;
         float centerTY = (float)hole->tY + halfTH;
 
@@ -1000,8 +1001,8 @@ void MapCreator::calcHoleRelation(AreaTmpData* tmpData) {
             anoIndex++;
             if (hole == anotherHole) continue;
 
-            float anoHalfTW = (float)anotherHole->tW / 2;
-            float anoHalfTH = (float)anotherHole->tH / 2;
+            float anoHalfTW = (float)anotherHole->tW * 0.5f;
+            float anoHalfTH = (float)anotherHole->tH * 0.5f;
             float anoCenterTX = (float)anotherHole->tX + anoHalfTW;
             float anoCenterTY = (float)anotherHole->tY + anoHalfTH;
 
@@ -1576,7 +1577,7 @@ static void createFinalMapForHole(AreaTmpData* tmpData, const std::vector<MapEle
                         int coData = base->co[realY][realX];
                         tmpData->finalAreaData->co[curFY][curFX] = coData;
                         
-                        // 这里的te和co是一样的，但特殊co可能超过512，此时其后两位就是特
+                        // 这里的te和co是一样的，但特殊co可能超过512，此时其后两位就是te
                         int teData;
                         if (coData > 512) {
                             teData = coData % 100;
