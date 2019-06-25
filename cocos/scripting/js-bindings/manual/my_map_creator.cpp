@@ -32,7 +32,7 @@ static int64_t getCurrentTime() {
     return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
-static void printVecVec(std::vector<std::vector<int>> &vecvec, int d = 5) {
+static void printVecVec(std::vector<std::vector<int>>& vecvec, int d = 5) {
     printf("vvvvvvvvvvvvvvv\n");
 
     char c[1];
@@ -48,7 +48,7 @@ static void printVecVec(std::vector<std::vector<int>> &vecvec, int d = 5) {
     printf("^^^^^^^^^^^^^^^\n");
 }
 
-static void printVecVecToFile(std::vector<std::vector<int>> &vecvec, std::string path) {
+static void printVecVecToFile(std::vector<std::vector<int>>& vecvec, std::string path) {
     std::string vecStr = "";
     for (int i = 0; i < vecvec.size(); i++) {
         std::vector<int> vec = vecvec[i];
@@ -432,9 +432,9 @@ public:
     // 载入区块元素
     void addMapEleBase(const MapEleBase* mapEleBase);
     void addMapEle(const MapEle* mapEle);
-    void addMapEleIndexs(const int tW, const int tH, const int doorType, const int sceneKey, std::vector<int> &eleIndexs);
+    void addMapEleIndexs(const int tW, const int tH, const int doorType, const int adAreaKey, std::vector<int>& eleIndexs);
 
-    // 读取模板
+    // 读取模板 sceneKey = sceneIndex * 10000 + areaIndex * 100 + adAreaKey
     void addAreaTemp(const int sceneKey, const AreaTemp* areaTemp);
 
     // 生成地图，然后从回调传出
@@ -476,7 +476,7 @@ private:
 
     std::map<int, AreaTemp*> _areaTempMap; // 不同场景Key对应的地图模板
 
-    int _curSceneKey;
+    int _curSceneKey; // sceneIndex * 10000 + areaIndex * 100 + adAreaKey
     std::function<void(bool)> _callback;
 };
 
@@ -667,11 +667,11 @@ void MapCreator::addMapEle(const MapEle* mapEle) {
     _mapEleVec.push_back(const_cast<MapEle*>(mapEle));
 }
 
-void MapCreator::addMapEleIndexs(const int tW, const int tH, const int doorType, const int sceneKey, std::vector<int> &eleIndexs) {
+void MapCreator::addMapEleIndexs(const int tW, const int tH, const int doorType, const int adAreaKey, std::vector<int>& eleIndexs) {
     assert(0 <= tW && tW < MAX_R_TW);
     assert(0 <= tH && tH < MAX_R_TH);
-    assert(sceneKey == 0 || sceneKey == 1); // 0,1 分别表示用在场景1-0的和用在其他场景的
-    auto ptr = &_mapEleList.list[tW][tH][doorType][sceneKey];
+    assert(adAreaKey == 0 || adAreaKey == 1); // 0,1 分别表示用在普通区域和高级区域
+    auto ptr = &_mapEleList.list[tW][tH][doorType][adAreaKey];
     ptr->insert(ptr->end(), eleIndexs.begin(), eleIndexs.end());
 }
 
@@ -754,7 +754,7 @@ void MapCreator::initTmpData(AreaTmpData* tmpData) {
 }
 
 // 在地图上填数据 （无边缘检测）
-static void fillArea(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
+static void fillArea(std::vector<std::vector<int>>& data, int beginX, int beginY, int edgeW, int edgeH, int key) {
     for (int i = 0; i < edgeW; i++) {
         int curX = beginX + i;
         for (int j = 0; j < edgeH; j++) {
@@ -765,7 +765,7 @@ static void fillArea(std::vector<std::vector<int>> &data, int beginX, int beginY
 }
 
 // 把地图空的地方填上数据 （带边缘检测）
-static void fillBlankArea(std::vector<std::vector<int>> &data, int beginX, int beginY, int edgeW, int edgeH, int key) {
+static void fillBlankArea(std::vector<std::vector<int>>& data, int beginX, int beginY, int edgeW, int edgeH, int key) {
     int WMax = (int)data[0].size();
     int HMax = (int)data.size();
     for (int i = 0; i < edgeW; i++) {
@@ -1340,13 +1340,13 @@ static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
 }
 
 void MapCreator::assignEleToHole(AreaTmpData* tmpData) {
-    int sceneKey = tmpData->curSceneKey == 10 ? 0 : 1;
+    int adAreaKey = tmpData->curSceneKey % 10;
 
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->type == HoleType::fi) continue;
         EleDoorType eleDoorType = getEleDirTypesFromHoleDoorDir(hole->doorDir);
 
-        std::vector<int> eleList = _mapEleList.list[hole->tW - 1][hole->tH - 1][(int)eleDoorType][sceneKey];
+        std::vector<int> eleList = _mapEleList.list[hole->tW - 1][hole->tH - 1][(int)eleDoorType][adAreaKey];
         int index = getRandom(0, (int)eleList.size() - 1);
         int eleIndex = eleList[index];
         hole->ele = this->_mapEleVec[eleIndex];
@@ -1545,7 +1545,7 @@ static std::vector<int> getEveryDigit(const int num, const int size) {
     return list;
 }
 
-static void createFinalMapForHole(AreaTmpData* tmpData, const std::vector<MapEleBase*> &mapEleBaseVec) {
+static void createFinalMapForHole(AreaTmpData* tmpData, const std::vector<MapEleBase*>& mapEleBaseVec) {
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->type == HoleType::fi) continue;
         
@@ -2320,6 +2320,12 @@ static int createAreaKey(AreaTmpData* tmpData) {
     return key;
 }
 
+static std::string numToString(int num) {
+    std::stringstream ss;
+    ss << num;
+    return ss.str();
+}
+
 void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     FinalAreaData* finalData = tmpData->finalAreaData;
     
@@ -2408,13 +2414,24 @@ void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     printVecVecToFile(tmpData->finalAreaData->co, "myMap/mapCo.csv");
     printVecVecToFile(tmpData->finalAreaData->te, "myMap/mapTe.csv");
 
-//    auto path = FileUtils::getInstance()->getWritablePath();
-//    path.append("myhero.json");
-//    FILE* file = fopen(path.c_str(), "wb");
-//    if(file) {
-//        fputs(buffer.GetString(), file);
-//        fclose(file);
-//    }
+    FileUtils* fileUtils = FileUtils::getInstance();
+    std::string dirPath = fileUtils->getWritablePath() + "lemontree/";
+    if (!fileUtils->isDirectoryExist(dirPath)) {
+        fileUtils->createDirectory(dirPath);
+    }
+    dirPath = dirPath + "mapjson/";
+    if (!fileUtils->isDirectoryExist(dirPath)) {
+        fileUtils->createDirectory(dirPath);
+    }
+    int sceneIndex = tmpData->curSceneKey / 10000;
+    int areaIndex = (tmpData->curSceneKey - sceneIndex * 10000) / 100;
+    std::string filePath = dirPath + "scene_" + numToString(sceneIndex) + "_" + numToString(areaIndex) + ".json";
+
+    FILE* file = fopen(filePath.c_str(), "wb");
+    if(file) {
+        fputs(buffer.GetString(), file);
+        fclose(file);
+    }
 }
 
 MY_SPACE_END
