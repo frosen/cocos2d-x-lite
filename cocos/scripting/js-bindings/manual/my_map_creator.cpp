@@ -432,9 +432,9 @@ public:
     // 载入区块元素
     void addMapEleBase(const MapEleBase* mapEleBase);
     void addMapEle(const MapEle* mapEle);
-    void addMapEleIndexs(const int tW, const int tH, const int doorType, const int adAreaKey, std::vector<int>& eleIndexs);
+    void addMapEleIndexs(const int tW, const int tH, const int doorType, const int areaType, std::vector<int>& eleIndexs);
 
-    // 读取模板 sceneKey = sceneIndex * 10000 + areaIndex * 100 + adAreaKey
+    // 读取模板 sceneKey = sceneIndex * 10000 + areaIndex * 100 + areaType
     void addAreaTemp(const int sceneKey, const AreaTemp* areaTemp);
 
     // 生成地图，然后从回调传出
@@ -476,7 +476,7 @@ private:
 
     std::map<int, AreaTemp*> _areaTempMap; // 不同场景Key对应的地图模板
 
-    int _curSceneKey; // sceneIndex * 10000 + areaIndex * 100 + adAreaKey
+    int _curSceneKey; // sceneIndex * 10000 + areaIndex * 100 + AreaType
     std::function<void(bool)> _callback;
 };
 
@@ -667,11 +667,11 @@ void MapCreator::addMapEle(const MapEle* mapEle) {
     _mapEleVec.push_back(const_cast<MapEle*>(mapEle));
 }
 
-void MapCreator::addMapEleIndexs(const int tW, const int tH, const int doorType, const int adAreaKey, std::vector<int>& eleIndexs) {
+void MapCreator::addMapEleIndexs(const int tW, const int tH, const int doorType, const int areaType, std::vector<int>& eleIndexs) {
     assert(0 <= tW && tW < MAX_R_TW);
     assert(0 <= tH && tH < MAX_R_TH);
-    assert(adAreaKey == 0 || adAreaKey == 1); // 0,1 分别表示用在普通区域和高级区域
-    auto ptr = &_mapEleList.list[tW][tH][doorType][adAreaKey];
+    assert(areaType == 0 || areaType == 1); // 0,1 分别表示用在普通区域和高级区域
+    auto ptr = &_mapEleList.list[tW][tH][doorType][areaType];
     ptr->insert(ptr->end(), eleIndexs.begin(), eleIndexs.end());
 }
 
@@ -1340,13 +1340,13 @@ static EleDoorType getEleDirTypesFromHoleDoorDir(int doorDir) {
 }
 
 void MapCreator::assignEleToHole(AreaTmpData* tmpData) {
-    int adAreaKey = tmpData->curSceneKey % 10;
+    int areaType = tmpData->curSceneKey % 10;
 
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->type == HoleType::fi) continue;
         EleDoorType eleDoorType = getEleDirTypesFromHoleDoorDir(hole->doorDir);
 
-        std::vector<int> eleList = _mapEleList.list[hole->tW - 1][hole->tH - 1][(int)eleDoorType][adAreaKey];
+        std::vector<int> eleList = _mapEleList.list[hole->tW - 1][hole->tH - 1][(int)eleDoorType][areaType];
         int index = getRandom(0, (int)eleList.size() - 1);
         int eleIndex = eleList[index];
         hole->ele = this->_mapEleVec[eleIndex];
@@ -2408,8 +2408,6 @@ void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     finalDataDoc.Accept(writer);
-
-    log("%s", buffer.GetString());
     
     printVecVecToFile(tmpData->finalAreaData->co, "myMap/mapCo.csv");
     printVecVecToFile(tmpData->finalAreaData->te, "myMap/mapTe.csv");
@@ -2426,11 +2424,14 @@ void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     int sceneIndex = tmpData->curSceneKey / 10000;
     int areaIndex = (tmpData->curSceneKey - sceneIndex * 10000) / 100;
     std::string filePath = dirPath + "scene_" + numToString(sceneIndex) + "_" + numToString(areaIndex) + ".json";
+    log("save to file: %s", filePath.c_str());
 
     FILE* file = fopen(filePath.c_str(), "wb");
     if(file) {
         fputs(buffer.GetString(), file);
         fclose(file);
+    } else {
+        log("wrong to open file!");
     }
 }
 
