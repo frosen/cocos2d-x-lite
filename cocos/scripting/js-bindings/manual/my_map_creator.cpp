@@ -237,7 +237,7 @@ public:
     AreaAttri* areaAttri;
 
     int getNoEnemyData(int x, int y) {
-        return y * NO_ENEMY_KEY + x;
+        return x * NO_ENEMY_KEY + y;
     }
 };
 
@@ -403,7 +403,13 @@ enum class PipeBlockType {
 // tilemap中的地形和碰撞
 static const int MAP_CO_DATA_BLANK = 0;
 static const int MAP_CO_DATA_BLOCK = 1;
+static const int MAP_CO_DATA_BLOCK_SINGLE = 2;
 static const int MAP_CO_DATA_BLOCK_UP = 3;
+
+static const int MAP_CO_DATA_BLOCK_UP_RIGHT = 11;
+static const int MAP_CO_DATA_BLOCK_UP_LEFT = 12;
+
+static const int MAP_CO_DATA_BLOCK_HORIZON = 16;
 
 static const int MAP_CO_DATA_PLAT = 19;
 
@@ -2176,15 +2182,34 @@ static void finishTeDir(AreaTmpData* tmpData) {
     }
 }
 
-static inline bool isTeGround(int teData) {
-    return teData == MAP_CO_DATA_PLAT ||
-        teData == MAP_CO_DATA_PLAT_HEAD ||
-        teData == MAP_CO_DATA_BLOCK_UP;
-}
-
 void MapCreator::finishFinalArea(AreaTmpData* tmpData) {
     finishPlatBG(tmpData);
     finishTeDir(tmpData);
+}
+
+static inline bool isTeGround(int teData) {
+    return teData == MAP_CO_DATA_BLOCK_SINGLE ||
+    teData == MAP_CO_DATA_BLOCK_UP ||
+    teData == MAP_CO_DATA_BLOCK_UP_RIGHT ||
+    teData == MAP_CO_DATA_BLOCK_UP_LEFT ||
+    teData == MAP_CO_DATA_BLOCK_HORIZON ||
+    teData == MAP_CO_DATA_PLAT ||
+    teData == MAP_CO_DATA_PLAT_HEAD ||
+    teData == MAP_CO_DATA_PLAT_HEAD_L ||
+    teData == MAP_CO_DATA_PLAT_HEAD_R;
+}
+
+static inline bool isCoGround(int coData) {
+    return coData == MAP_CO_DATA_BLOCK ||
+        coData == MAP_CO_DATA_PLAT ||
+        coData == MAP_CO_DATA_PLAT_HEAD;
+}
+
+static inline bool isCoBlank(int coData) {
+    return coData == MAP_CO_DATA_BLANK ||
+        coData == MAP_CO_DATA_PLAT ||
+        coData == MAP_CO_DATA_PLAT_HEAD ||
+        coData == MAP_CO_DATA_PLAT_BG;
 }
 
 // 获取地面信息
@@ -2196,34 +2221,38 @@ void MapCreator::handleGround(AreaTmpData* tmpData) {
         noepMap[noep] = true;
     }
     
+    // te用于找到向上的地面，co用于其他碰撞
     std::vector<std::vector<int>>* pTe = &(tmpData->finalAreaData->te);
+    std::vector<std::vector<int>>* pCo = &(tmpData->finalAreaData->co);
     
     // 最左右和最上3格不能有敌人
     for (int ry = 3; ry < pTe->size(); ry++) {
         std::vector<int>* pTeLine = &(*pTe)[ry];
         for (int rx = 1; rx < pTeLine->size() - 1; rx++) {
             int teData = (*pTeLine)[rx];
-            
             if (!isTeGround(teData)) continue;
+            
+            int coData = (*pCo)[ry][rx]; // 避免落到spine上
+            if (!isCoGround(coData)) continue;
             
             int noepData = tmpData->w_curTemp->getNoEnemyData(rx, ry);
             if (noepMap.find(noepData) != noepMap.end()) continue;
             
-            int teAboveAbove = (*pTe)[ry - 2][rx];
-            if (teAboveAbove != MAP_CO_DATA_BLANK) continue;
+            int coAboveAbove = (*pCo)[ry - 2][rx]; // 用co来判断，也是为了避免spine
+            if (!isCoBlank(coAboveAbove)) continue;
             
             // 地面数据放入（当前地面的anchor 0.5 1 的像素位置）
-            tmpData->finalAreaData->groundInfos.push_back(rx * TileLength + TileLength * 0.5);
-            tmpData->finalAreaData->groundInfos.push_back((tmpData->tH * 3 - ry + 1) * TileLength + 1); // tmpData->tH * 3 + 1 - ry - 1
+            int pX = rx * TileLength + TileLength * 0.5;
+            int pY = (tmpData->tH * 3 - ry) * TileLength; // tmpData->tH * 3 + 1 - ry - 1
+            tmpData->finalAreaData->groundInfos.push_back(pX);
+            tmpData->finalAreaData->groundInfos.push_back(pY);
             
             int teL = (*pTe)[ry][rx - 1];
             int teR = (*pTe)[ry][rx + 1];
             
             bool wide = isTeGround(teL) && isTeGround(teR);
-            bool high = ry > 4 &&
-                (*pTe)[ry - 3][rx] == MAP_CO_DATA_BLANK &&
-                (*pTe)[ry - 4][rx] == MAP_CO_DATA_BLANK;
-            
+            bool high = ry > 4 && isCoBlank((*pCo)[ry - 3][rx]) && isCoBlank((*pCo)[ry - 4][rx]);
+
             int groundType;
             if (!wide && !high) {
                 groundType = 1;
