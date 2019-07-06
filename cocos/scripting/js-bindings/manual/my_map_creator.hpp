@@ -27,5 +27,6 @@ SE_DECLARE_FUNC(jsb_my_MapCreator_addMapEle);
 SE_DECLARE_FUNC(jsb_my_MapCreator_addMapEleIndexs);
 SE_DECLARE_FUNC(jsb_my_MapCreator_addAreaTemp);
 SE_DECLARE_FUNC(jsb_my_MapCreator_createArea);
+SE_DECLARE_FUNC(jsb_my_MapCreator_getSaveFilePath);
 
 #endif /* my_map_creator_hpp */

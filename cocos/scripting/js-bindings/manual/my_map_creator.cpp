@@ -444,7 +444,10 @@ public:
     void addAreaTemp(const int sceneKey, const AreaTemp* areaTemp);
 
     // 生成地图，然后从回调传出
-    void createArea(const int sceneKey, const std::function<void(bool)>& callback);
+    void createArea(const int sceneKey, const std::function<void(int)>& callback);
+    
+    // 获取保存路径
+    std::string getSaveFilePath(const int sceneKey);
 
 protected:
     void init();
@@ -467,6 +470,7 @@ protected:
     void addRandomTile(AreaTmpData* tmpData);
 
     void saveToJsonFile(AreaTmpData* tmpData);
+    void endProcess(int ret);
 
 private:
     bool _creating;
@@ -474,6 +478,8 @@ private:
     std::thread _thread;
     std::mutex _sleepMutex;
     std::condition_variable _sleepCondition;
+    
+    std::string _saveDir;
 
     // 输入数据
     std::vector<MapEleBase*> _mapEleBaseVec;
@@ -483,7 +489,7 @@ private:
     std::map<int, AreaTemp*> _areaTempMap; // 不同场景Key对应的地图模板
 
     int _curSceneKey; // sceneIndex * 10000 + areaIndex * 100 + AreaType
-    std::function<void(bool)> _callback;
+    std::function<void(int)> _callback;
 };
 
 // 实现 --------------------------------------------------------------
@@ -685,8 +691,12 @@ void MapCreator::addAreaTemp(const int sceneKey, const AreaTemp* areaTemp) {
     _areaTempMap[sceneKey] = const_cast<AreaTemp*>(areaTemp);
 }
 
-void MapCreator::createArea(const int sceneKey, const std::function<void(bool)>& callback) {
-    if (_creating) return;
+void MapCreator::createArea(const int sceneKey, const std::function<void(int)>& callback) {
+    if (_creating) {
+        callback(false);
+        return;
+    }
+    
     _creating = true;
 
     _curSceneKey = sceneKey;
@@ -696,7 +706,32 @@ void MapCreator::createArea(const int sceneKey, const std::function<void(bool)>&
     _sleepCondition.notify_one();
 }
 
+static std::string numToString(int num) {
+    std::stringstream ss;
+    ss << num;
+    return ss.str();
+}
+
+std::string MapCreator::getSaveFilePath(const int sceneKey) {
+    int sceneIndex = sceneKey / 10000;
+    int areaIndex = (sceneKey - sceneIndex * 10000) / 100;
+    return _saveDir + "scene_" + numToString(sceneIndex) + "_" + numToString(areaIndex) + ".json";
+}
+
 void MapCreator::init() {
+    
+    FileUtils* fileUtils = FileUtils::getInstance();
+    std::string dirPath = fileUtils->getWritablePath() + "lemontree/";
+    if (!fileUtils->isDirectoryExist(dirPath)) {
+        fileUtils->createDirectory(dirPath);
+    }
+    dirPath = dirPath + "mapjson/";
+    if (!fileUtils->isDirectoryExist(dirPath)) {
+        fileUtils->createDirectory(dirPath);
+    }
+    
+    _saveDir = dirPath;
+    
     // 初始化线程
     _thread = std::thread(&MapCreator::threadLoop, this);
     _thread.detach();
@@ -706,6 +741,13 @@ void MapCreator::threadLoop() {
     while (true) {
         std::unique_lock<std::mutex> lk(_sleepMutex);
         _sleepCondition.wait(lk);
+        
+        std::string savePath = getSaveFilePath(_curSceneKey);
+        if (FileUtils::getInstance()->isFileExist(savePath)) {
+            log("this path %s has exist", savePath.c_str());
+            endProcess(2);
+            return;
+        }
 
         log("begin to create map");
 
@@ -737,11 +779,7 @@ void MapCreator::threadLoop() {
         delete tmpData;
 
         // 结束
-        auto sch = cocos2d::Director::getInstance()->getScheduler();
-        sch->performFunctionInCocosThread([=]() {
-            _creating = false;
-            _callback(true);
-        });
+        endProcess(1);
     }
 }
 
@@ -2349,12 +2387,6 @@ static int createAreaKey(AreaTmpData* tmpData) {
     return key;
 }
 
-static std::string numToString(int num) {
-    std::stringstream ss;
-    ss << num;
-    return ss.str();
-}
-
 void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     FinalAreaData* finalData = tmpData->finalAreaData;
     
@@ -2441,18 +2473,7 @@ void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     printVecVecToFile(tmpData->finalAreaData->co, "myMap/mapCo.csv");
     printVecVecToFile(tmpData->finalAreaData->te, "myMap/mapTe.csv");
 
-    FileUtils* fileUtils = FileUtils::getInstance();
-    std::string dirPath = fileUtils->getWritablePath() + "lemontree/";
-    if (!fileUtils->isDirectoryExist(dirPath)) {
-        fileUtils->createDirectory(dirPath);
-    }
-    dirPath = dirPath + "mapjson/";
-    if (!fileUtils->isDirectoryExist(dirPath)) {
-        fileUtils->createDirectory(dirPath);
-    }
-    int sceneIndex = tmpData->curSceneKey / 10000;
-    int areaIndex = (tmpData->curSceneKey - sceneIndex * 10000) / 100;
-    std::string filePath = dirPath + "scene_" + numToString(sceneIndex) + "_" + numToString(areaIndex) + ".json";
+    std::string filePath = getSaveFilePath(tmpData->curSceneKey);
     log("save to file: %s", filePath.c_str());
 
     FILE* file = fopen(filePath.c_str(), "wb");
@@ -2462,6 +2483,14 @@ void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     } else {
         log("wrong to open file!");
     }
+}
+
+void MapCreator::endProcess(int ret) {
+    auto sch = cocos2d::Director::getInstance()->getScheduler();
+    sch->performFunctionInCocosThread([=]() {
+        _creating = false;
+        _callback(ret);
+    });
 }
 
 MY_SPACE_END
@@ -3106,6 +3135,30 @@ static bool jsb_my_MapCreator_createArea(se::State& s) {
 }
 SE_BIND_FUNC(jsb_my_MapCreator_createArea)
 
+static bool jsb_my_MapCreator_getSaveFilePath(se::State& s) {
+    MapCreator* cobj = (MapCreator*)s.nativeThisObject();
+    SE_PRECONDITION2(cobj, false, "jsb_my_MapCreator_createArea : Invalid Native Object");
+    
+    const auto& args = s.args();
+    size_t argc = args.size();
+    CC_UNUSED bool ok = true;
+    if (argc == 1) {
+        int arg0 = 0;
+        ok &= seval_to_int32(args[0], (int32_t*)&arg0);
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createArea : Error processing arguments 0");
+        
+        std::string path = cobj->getSaveFilePath(arg0);
+        
+        ok &= std_string_to_seval(path, &s.rval());
+        SE_PRECONDITION2(ok, false, "jsb_my_MapCreator_createArea : Error result");
+        
+        return true;
+    }
+    SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 1);
+    return false;
+}
+SE_BIND_FUNC(jsb_my_MapCreator_getSaveFilePath)
+
 bool register_my_map_creator(se::Object* obj) {
     // 命名空间
     se::Value nsVal;
@@ -3126,6 +3179,7 @@ bool register_my_map_creator(se::Object* obj) {
     cls->defineFunction("addMapEleIndexs", _SE(jsb_my_MapCreator_addMapEleIndexs));
     cls->defineFunction("addAreaTemp", _SE(jsb_my_MapCreator_addAreaTemp));
     cls->defineFunction("createArea", _SE(jsb_my_MapCreator_createArea));
+    cls->defineFunction("getSaveFilePath", _SE(jsb_my_MapCreator_getSaveFilePath));
     cls->install();
     JSBClassType::registerClass<MapCreator>(cls);
 
