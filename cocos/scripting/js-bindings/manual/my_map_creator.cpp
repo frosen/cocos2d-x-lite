@@ -2281,7 +2281,7 @@ void MapCreator::handleGround(AreaTmpData* tmpData) {
             
             // 地面数据放入（当前地面的anchor 0.5 1 的像素位置）
             int pX = rx * TileLength + TileLength * 0.5;
-            int pY = (tmpData->tH * 3 - ry) * TileLength; // tmpData->tH * 3 + 1 - ry - 1
+            int pY = (tmpData->tH * 3 - ry) * TileLength + 1; // tmpData->tH * 3 + 1 - ry - 1
             tmpData->finalAreaData->groundInfos.push_back(pX);
             tmpData->finalAreaData->groundInfos.push_back(pY);
             
