@@ -409,22 +409,23 @@ static const int MAP_CO_DATA_BLOCK_UP = 3;
 static const int MAP_CO_DATA_BLOCK_UP_RIGHT = 11;
 static const int MAP_CO_DATA_BLOCK_UP_LEFT = 12;
 
-static const int MAP_CO_DATA_BLOCK_HORIZON = 16;
+static const int MAP_CO_DATA_BLOCK_VERTICAL = 17;
+static const int MAP_CO_DATA_BLOCK_HORIZON = 17;
 
-static const int MAP_CO_DATA_PLAT = 19;
+static const int MAP_CO_DATA_PLAT = 20;
 
-static const int MAP_CO_DATA_PLAT_HEAD_L = 20;
-static const int MAP_CO_DATA_PLAT_HEAD = 21;
-static const int MAP_CO_DATA_PLAT_HEAD_R = 22;
+static const int MAP_CO_DATA_PLAT_HEAD_L = 21;
+static const int MAP_CO_DATA_PLAT_HEAD = 22;
+static const int MAP_CO_DATA_PLAT_HEAD_R = 23;
 
-static const int MAP_CO_DATA_PLAT_BG_L = 23;
-static const int MAP_CO_DATA_PLAT_BG = 24;
-static const int MAP_CO_DATA_PLAT_BG_R = 25;
+static const int MAP_CO_DATA_PLAT_BG_L = 24;
+static const int MAP_CO_DATA_PLAT_BG = 25;
+static const int MAP_CO_DATA_PLAT_BG_R = 26;
 
-static const int MAP_CO_DATA_PLAT_HEAD_SINGLE = 26;
-static const int MAP_CO_DATA_PLAT_BG_SINGLE = 27;
+static const int MAP_CO_DATA_PLAT_HEAD_SINGLE = 27;
+static const int MAP_CO_DATA_PLAT_BG_SINGLE = 28;
 
-static const int MAP_AUTO_TE_DATA_MAX = 32; // 最大的自动地形，<=这个值的地形都是跟着碰撞走的，>的属于自定义
+static const int MAP_AUTO_TE_DATA_MAX = 45; // 最大的自动地形，<=这个值的地形都是跟着碰撞走的，>的属于自定义
 
 static const int TileLength = 32;
 
@@ -1838,8 +1839,8 @@ static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
         int beginY = tY * 3;
         for (int tX = 1; tX < tXList.size() - 1; tX++) { // 舍去左右的列
             int tData = tXList[tX];
+            if (!(tData == 0 || (FI_EDGE_ID_BEGIN <= tData && tData < FI_HOLE_ID_BEGIN))) continue;
             
-            if (tData != 0) continue;
             int beginX = tX * 3 + 1;
             
             int wallAbove = tmpData->thumbArea[tY - 1][tX];
@@ -1925,14 +1926,14 @@ static void finishHoleFirstLine(AreaTmpData* tmpData) {
         int beginX = hole->tX * 3 + 1;
         int beginY = hole->tY * 3;
         int yAbove = beginY - 1;
-        int height = hole->tW * 3;
+        int width = hole->tW * 3;
 
         std::vector<std::vector<int>> platXVecVec;
         platXVecVec.resize(hole->tW);
         bool blank = false; // 从非空变成空，重新计入一个新的vec中，让连续的空放在一起，以便去除两边
         int platXVecIndex = -1;
 
-        for (int x = 0; x < height; x++) {
+        for (int x = 0; x < width; x++) {
             int realX = beginX + x;
             int data = tmpData->finalAreaData->co[beginY][realX];
             if (data != MAP_CO_DATA_BLANK) continue;
@@ -2052,24 +2053,24 @@ static std::map <int, int> teDirTypeMap = {
     {0b00001000,  2}, {0b00001001,  2}, {0b00001010,  2}, {0b00001011,  2}, {0b00001100,  2}, {0b00001101,  2}, {0b00001110,  2}, {0b00001111,  2},
     
     // 只有一边
-    {0b10000000, 16}, {0b10000001, 16}, {0b10000010, 16}, {0b10000011, 16}, {0b10000100, 16}, {0b10000101, 16}, {0b10000110, 16}, {0b10000111, 16},
-    {0b10001000, 16}, {0b10001001, 16}, {0b10001010, 16}, {0b10001011, 16}, {0b10001100, 16}, {0b10001101, 16}, {0b10001110, 16}, {0b10001111, 16},
+    {0b10000000,  2}, {0b10000001,  2}, {0b10000010,  2}, {0b10000011,  2}, {0b10000100,  2}, {0b10000101,  2}, {0b10000110,  2}, {0b10000111,  2},
+    {0b10001000,  2}, {0b10001001,  2}, {0b10001010,  2}, {0b10001011,  2}, {0b10001100,  2}, {0b10001101,  2}, {0b10001110,  2}, {0b10001111,  2},
     
-    {0b01000000, 16}, {0b01000001, 16}, {0b01000010, 16}, {0b01000011, 16}, {0b01000100, 16}, {0b01000101, 16}, {0b01000110, 16}, {0b01000111, 16},
-    {0b01001000, 16}, {0b01001001, 16}, {0b01001010, 16}, {0b01001011, 16}, {0b01001100, 16}, {0b01001101, 16}, {0b01001110, 16}, {0b01001111, 16},
+    {0b01000000,  2}, {0b01000001,  2}, {0b01000010,  2}, {0b01000011,  2}, {0b01000100,  2}, {0b01000101,  2}, {0b01000110,  2}, {0b01000111,  2},
+    {0b01001000,  2}, {0b01001001,  2}, {0b01001010,  2}, {0b01001011,  2}, {0b01001100,  2}, {0b01001101,  2}, {0b01001110,  2}, {0b01001111,  2},
     
-    {0b00100000, 15}, {0b00100001, 15}, {0b00100010, 15}, {0b00100011, 15}, {0b00100100, 15}, {0b00100101, 15}, {0b00100110, 15}, {0b00100111, 15},
-    {0b00101000, 15}, {0b00101001, 15}, {0b00101010, 15}, {0b00101011, 15}, {0b00101100, 15}, {0b00101101, 15}, {0b00101110, 15}, {0b00101111, 15},
+    {0b00100000,  2}, {0b00100001,  2}, {0b00100010,  2}, {0b00100011,  2}, {0b00100100,  2}, {0b00100101,  2}, {0b00100110,  2}, {0b00100111,  2},
+    {0b00101000,  2}, {0b00101001,  2}, {0b00101010,  2}, {0b00101011,  2}, {0b00101100,  2}, {0b00101101,  2}, {0b00101110,  2}, {0b00101111,  2},
     
-    {0b00010000, 15}, {0b00010001, 15}, {0b00010010, 15}, {0b00010011, 15}, {0b00010100, 15}, {0b00010101, 15}, {0b00010110, 15}, {0b00010111, 15},
-    {0b00011000, 15}, {0b00011001, 15}, {0b00011010, 15}, {0b00011011, 15}, {0b00011100, 15}, {0b00011101, 15}, {0b00011110, 15}, {0b00011111, 15},
+    {0b00010000,  2}, {0b00010001,  2}, {0b00010010,  2}, {0b00010011,  2}, {0b00010100,  2}, {0b00010101,  2}, {0b00010110,  2}, {0b00010111,  2},
+    {0b00011000,  2}, {0b00011001,  2}, {0b00011010,  2}, {0b00011011,  2}, {0b00011100,  2}, {0b00011101,  2}, {0b00011110,  2}, {0b00011111,  2},
     
     // 左右 上下
-    {0b11000000, 16}, {0b11000001, 16}, {0b11000010, 16}, {0b11000011, 16}, {0b11000100, 16}, {0b11000101, 16}, {0b11000110, 16}, {0b11000111, 16},
-    {0b11001000, 16}, {0b11001001, 16}, {0b11001010, 16}, {0b11001011, 16}, {0b11001100, 16}, {0b11001101, 16}, {0b11001110, 16}, {0b11001111, 16},
+    {0b11000000, 17}, {0b11000001, 17}, {0b11000010, 17}, {0b11000011, 17}, {0b11000100, 17}, {0b11000101, 17}, {0b11000110, 17}, {0b11000111, 17},
+    {0b11001000, 17}, {0b11001001, 17}, {0b11001010, 17}, {0b11001011, 17}, {0b11001100, 17}, {0b11001101, 17}, {0b11001110, 17}, {0b11001111, 17},
     
-    {0b00110000, 15}, {0b00110001, 15}, {0b00110010, 15}, {0b00110011, 15}, {0b00110100, 15}, {0b00110101, 15}, {0b00110110, 15}, {0b00110111, 15},
-    {0b00111000, 15}, {0b00111001, 15}, {0b00111010, 15}, {0b00111011, 15}, {0b00111100, 15}, {0b00111101, 15}, {0b00111110, 15}, {0b00111111, 15},
+    {0b00110000, 16}, {0b00110001, 16}, {0b00110010, 16}, {0b00110011, 16}, {0b00110100, 16}, {0b00110101, 16}, {0b00110110, 16}, {0b00110111, 16},
+    {0b00111000, 16}, {0b00111001, 16}, {0b00111010, 16}, {0b00111011, 16}, {0b00111100, 16}, {0b00111101, 16}, {0b00111110, 16}, {0b00111111, 16},
     
     // 两方向
     {0b10100000,  2}, {0b10100001,  2}, {0b10100010,  2}, {0b10100011,  2}, {0b10100100,  2}, {0b10100101,  2}, {0b10100110,  2}, {0b10100111,  2},
