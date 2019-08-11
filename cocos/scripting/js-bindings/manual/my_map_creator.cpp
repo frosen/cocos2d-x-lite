@@ -1705,7 +1705,7 @@ static void fillFinalPipeBlockByType(PipeBlockType type, int tX, int tY, int pip
     tmpData->thumbArea[tY][tX] = curTData + pipeIndex;
 }
 
-static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, AreaTmpData* tmpData, bool firstBlock) {
+static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, AreaTmpData* tmpData) {
     int beginX = tX * 3 + 1;
     int beginY = tY * 3;
     FinalAreaData* finalAreaData = tmpData->finalAreaData;
@@ -1716,34 +1716,29 @@ static void fillFinalPipeBlockWithHoleAbove(int tX, int tY, int pipeIndex, AreaT
         std::vector<int> mapDataList = {MAP_CO_DATA_BLANK, MAP_CO_DATA_BLANK, MAP_CO_DATA_BLANK};
         
         if (subHIndex == 0) {
-            if (firstBlock) {
-                if (finalAreaData->co[realY - 1][beginX] == MAP_CO_DATA_BLOCK) {
-                    mapDataList[2] = MAP_CO_DATA_PLAT;
-                    mapDataList[0] = MAP_CO_DATA_BLOCK;
-                } else if (finalAreaData->co[realY - 1][beginX + 2] == MAP_CO_DATA_BLOCK) {
-                    mapDataList[0] = MAP_CO_DATA_PLAT;
-                    mapDataList[2] = MAP_CO_DATA_BLOCK;
-                } else if (
-                    finalAreaData->co[realY - 1][beginX]     == MAP_CO_DATA_PLAT_BG ||
-                    finalAreaData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_BG ||
-                    finalAreaData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_BG ||
-                    finalAreaData->co[realY - 1][beginX]     == MAP_CO_DATA_PLAT_HEAD ||
-                    finalAreaData->co[realY - 1][beginX + 1] == MAP_CO_DATA_PLAT_HEAD ||
-                    finalAreaData->co[realY - 1][beginX + 2] == MAP_CO_DATA_PLAT_HEAD) {
-                    mapDataList[0] = MAP_CO_DATA_PLAT;
-                    mapDataList[1] = MAP_CO_DATA_PLAT;
-                    mapDataList[2] = MAP_CO_DATA_PLAT;
+            int aboveData0 = finalAreaData->co[realY - 1][beginX];
+            int aboveData1 = finalAreaData->co[realY - 1][beginX + 1];
+            int aboveData2 = finalAreaData->co[realY - 1][beginX + 2];
+            
+            if (aboveData0 == MAP_CO_DATA_BLOCK && aboveData1 == MAP_CO_DATA_BLOCK && aboveData2 == MAP_CO_DATA_BLOCK) {
+                thumbAreaType = PIPE_TYPE_BLANK;
+            } else if (aboveData0 == MAP_CO_DATA_BLANK && aboveData1 == MAP_CO_DATA_BLANK && aboveData2 == MAP_CO_DATA_BLANK) {
+                if (ifInPercent(50)) {
+                    mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
                 } else {
-                    if (ifInPercent(50)) {
-                        mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
-                    } else {
-                        thumbAreaType = PIPE_TYPE_1; // 第0行未处理，使用第1行
-                    }
+                    thumbAreaType = PIPE_TYPE_1; // 第0行未处理，使用第1行
                 }
+            } else if (
+                aboveData0 == MAP_CO_DATA_PLAT_BG || aboveData0 == MAP_CO_DATA_PLAT_HEAD ||
+                aboveData1 == MAP_CO_DATA_PLAT_BG || aboveData1 == MAP_CO_DATA_PLAT_HEAD ||
+                aboveData2 == MAP_CO_DATA_PLAT_BG || aboveData2 == MAP_CO_DATA_PLAT_HEAD) {
+                mapDataList[0] = MAP_CO_DATA_PLAT;
+                mapDataList[1] = MAP_CO_DATA_PLAT;
+                mapDataList[2] = MAP_CO_DATA_PLAT;
             } else {
-                if (finalAreaData->co[realY - 1][beginX] != MAP_CO_DATA_BLOCK) mapDataList[0] = MAP_CO_DATA_PLAT;
-                if (finalAreaData->co[realY - 1][beginX + 1] != MAP_CO_DATA_BLOCK) mapDataList[1] = MAP_CO_DATA_PLAT;
-                if (finalAreaData->co[realY - 1][beginX + 2] != MAP_CO_DATA_BLOCK) mapDataList[2] = MAP_CO_DATA_PLAT;
+                mapDataList[0] = aboveData0 == MAP_CO_DATA_BLOCK ? MAP_CO_DATA_BLOCK : MAP_CO_DATA_PLAT;
+                mapDataList[1] = aboveData0 == MAP_CO_DATA_BLOCK ? MAP_CO_DATA_BLOCK : MAP_CO_DATA_PLAT;
+                mapDataList[2] = aboveData2 == MAP_CO_DATA_BLOCK ? MAP_CO_DATA_BLOCK : MAP_CO_DATA_PLAT;
             }
         } else if (subHIndex == 1 && thumbAreaType == PIPE_TYPE_1) {
             mapDataList[getRandom(0, 2)] = MAP_CO_DATA_PLAT;
@@ -1773,8 +1768,6 @@ static void createFinalMapForPipe(AreaTmpData* tmpData) {
                 fillFinalPipeBlockByType(PipeBlockType::blank, tX, tY, pipeIndex, tmpData);
                 
             } else {
-                bool firstPipeBlock = (tData - pipeIndex == PIPE_FIRST_BLOCK_ID);
-                
                 int tDataAbove = tmpData->thumbArea[tY - 1][tX];
                 
                 bool connectedAbove = true; // 上边非连接，本块不用加跳台
@@ -1789,7 +1782,7 @@ static void createFinalMapForPipe(AreaTmpData* tmpData) {
                     fillFinalPipeBlockByType(PipeBlockType::blank, tX, tY, pipeIndex, tmpData);
                     
                 } else if (tDataAbove < PIPE_ID_BEGIN) { // hole
-                    fillFinalPipeBlockWithHoleAbove(tX, tY, pipeIndex, tmpData, firstPipeBlock);
+                    fillFinalPipeBlockWithHoleAbove(tX, tY, pipeIndex, tmpData);
                     
                 } else if (tDataAbove == PIPE_TYPE_0) {
                     PipeBlockType t = ifInPercent(66) ? PipeBlockType::plat0 : PipeBlockType::plat02;
@@ -1917,6 +1910,50 @@ static void createFinalMapForWidePipe(AreaTmpData* tmpData) {
     }
 }
 
+static void finishPipeBlockAbove(AreaTmpData* tmpData) {
+    for (int tY = 1; tY < tmpData->thumbArea.size(); tY++) { // 舍去第一行
+        std::vector<int> tXList = tmpData->thumbArea[tY];
+        for (int tX = 0; tX < tXList.size(); tX++) {
+            int tData = tXList[tX];
+            if (tData < PIPE_ID_BEGIN || USING_WALL_LEFT <= tData) continue;
+
+            int thumbAbove = tmpData->thumbArea[tY - 1][tX];
+            bool aboveIsBlock = thumbAbove == 0 ||
+                (FI_EDGE_ID_BEGIN <= thumbAbove && thumbAbove < FI_HOLE_ID_BEGIN) ||
+                USING_WALL_LEFT <= thumbAbove;
+        
+            if (!aboveIsBlock) continue;
+            
+            int beginY = tY * 3;
+            int beginX = tX * 3 + 1;
+            
+            bool aboveAboveIsBlock = false;
+            if (tY > 1) {
+                int thumbAboveAbove = tmpData->thumbArea[tY - 2][tX];
+                aboveAboveIsBlock = thumbAboveAbove == 0 ||
+                    (FI_EDGE_ID_BEGIN <= thumbAboveAbove && thumbAboveAbove < FI_HOLE_ID_BEGIN) ||
+                    USING_WALL_LEFT <= thumbAboveAbove;
+            }
+            
+            if (aboveAboveIsBlock) {
+                setFinalAreaDataBlank(tmpData, beginX + 0, beginY - 1);
+                setFinalAreaDataBlank(tmpData, beginX + 0, beginY - 2);
+                setFinalAreaDataBlank(tmpData, beginX + 0, beginY - 3);
+                setFinalAreaDataBlank(tmpData, beginX + 1, beginY - 1);
+                setFinalAreaDataBlank(tmpData, beginX + 1, beginY - 2);
+                setFinalAreaDataBlank(tmpData, beginX + 1, beginY - 3);
+                setFinalAreaDataBlank(tmpData, beginX + 2, beginY - 1);
+                setFinalAreaDataBlank(tmpData, beginX + 2, beginY - 2);
+                setFinalAreaDataBlank(tmpData, beginX + 2, beginY - 3);
+            } else {
+                setFinalAreaDataBlank(tmpData, beginX + 0, beginY - 1);
+                setFinalAreaDataBlank(tmpData, beginX + 1, beginY - 1);
+                setFinalAreaDataBlank(tmpData, beginX + 2, beginY - 1);
+            }
+        }
+    }
+}
+
 static void finishHoleFirstLine(AreaTmpData* tmpData) {
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->tY == 0) continue;
@@ -1994,10 +2031,10 @@ static void finishMapFirstLine(AreaTmpData* tmpData) {
 void MapCreator::createFinalArea(AreaTmpData* tmpData) {
     createFinalMapForFi(tmpData);
     createFinalMapForHole(tmpData, _mapEleBaseVec);
-    
     createFinalMapForPipe(tmpData);
     createFinalMapForWidePipe(tmpData);
-    
+
+    finishPipeBlockAbove(tmpData);
     finishHoleFirstLine(tmpData);
     finishMapFirstLine(tmpData);
 }
