@@ -95,8 +95,8 @@ static void getReadyForRandom() {
     int seed = abs(timeSeed - abs(ptrSeed));
     printf("s = %d (%d, %d)\n", seed, timeSeed, ptrSeed);
 
-    // 1557623694
-    randomEngine->seed(1667623667);
+    // 1557623694 1667623667
+    randomEngine->seed(seed);
 }
 
 static inline int getRandom(int from, int to) {
@@ -409,7 +409,10 @@ static const int MAP_CO_DATA_BLOCK_UP = 3;
 static const int MAP_CO_DATA_BLOCK_UP_RIGHT = 11;
 static const int MAP_CO_DATA_BLOCK_UP_LEFT = 12;
 
-static const int MAP_CO_DATA_BLOCK_VERTICAL = 17;
+static const int MAP_CO_DATA_BLOCK_DOWN_LEFT = 13;
+static const int MAP_CO_DATA_BLOCK_DOWN_RIGHT = 14;
+
+static const int MAP_CO_DATA_BLOCK_VERTICAL = 16;
 static const int MAP_CO_DATA_BLOCK_HORIZON = 17;
 
 static const int MAP_CO_DATA_PLAT = 20;
@@ -684,6 +687,7 @@ void MapCreator::addMapEleIndexs(const int tW, const int tH, const int doorType,
     assert(0 <= tW && tW < MAX_R_TW);
     assert(0 <= tH && tH < MAX_R_TH);
     assert(areaType == 0 || areaType == 1); // 0,1 分别表示用在普通区域和高级区域
+
     auto ptr = &_mapEleList.list[tW][tH][doorType][areaType];
     ptr->insert(ptr->end(), eleIndexs.begin(), eleIndexs.end());
 }
@@ -744,11 +748,11 @@ void MapCreator::threadLoop() {
         _sleepCondition.wait(lk);
         
         std::string savePath = getSaveFilePath(_curSceneKey);
-        if (FileUtils::getInstance()->isFileExist(savePath)) {
-            log("this path %s has exist", savePath.c_str());
-            endProcess(2);
-            return;
-        }
+//        if (FileUtils::getInstance()->isFileExist(savePath)) {
+//            log("this path %s has exist", savePath.c_str());
+//            endProcess(2);
+//            return;
+//        }
 
         log("begin to create map");
 
@@ -1004,7 +1008,6 @@ void MapCreator::digHole(AreaTmpData* tmpData) {
     }
 
     tmpData->thumbArea = std::move(holeTArea); // 处理后的数据放回原处
-    printVecVec(tmpData->thumbArea);
 }
 
 static HoleDirOffsetType calcHoleDirOffsetType(float myPos, float myHalf, float anoPos, float anoHalf) {
@@ -1390,7 +1393,6 @@ void MapCreator::assignEleToHole(AreaTmpData* tmpData) {
     for (HoleData* hole : tmpData->holeVec) {
         if (hole->type == HoleType::fi) continue;
         EleDoorType eleDoorType = getEleDirTypesFromHoleDoorDir(hole->doorDir);
-
         std::vector<int> eleList = _mapEleList.list[hole->tW - 1][hole->tH - 1][(int)eleDoorType][areaType];
         int index = getRandom(0, (int)eleList.size() - 1);
         int eleIndex = eleList[index];
@@ -1539,7 +1541,6 @@ void MapCreator::digPipe(AreaTmpData* tmpData) {
     }
 
     tmpData->thumbArea = std::move(thumbArea); // 处理后的数据放回原处
-    printVecVec(tmpData->thumbArea);
 }
 
 void MapCreator::calcSpines(AreaTmpData* tmpData) {
@@ -2508,8 +2509,8 @@ void MapCreator::saveToJsonFile(AreaTmpData* tmpData) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     finalDataDoc.Accept(writer);
     
-    printVecVecToFile(tmpData->finalAreaData->co, "myMap/mapCo.csv");
-    printVecVecToFile(tmpData->finalAreaData->te, "myMap/mapTe.csv");
+//    printVecVecToFile(tmpData->finalAreaData->co, "myMap/mapCo.csv");
+//    printVecVecToFile(tmpData->finalAreaData->te, "myMap/mapTe.csv");
 
     std::string filePath = getSaveFilePath(tmpData->curSceneKey);
     log("save to file: %s", filePath.c_str());
