@@ -2289,6 +2289,10 @@ static inline bool isCoBlank(int coData) {
         coData == MAP_CO_DATA_PLAT_BG;
 }
 
+static inline int getPXPYKey(int pX, int pY) {
+    return pX * 10000 + pY;
+}
+
 // 获取地面信息
 void MapCreator::handleGround(AreaTmpData* tmpData) {
     
@@ -2296,6 +2300,12 @@ void MapCreator::handleGround(AreaTmpData* tmpData) {
     std::map<int, bool> noepMap;
     for (int noep : tmpData->w_curTemp->noeps) {
         noepMap[noep] = true;
+    }
+    
+    // 准备出不能作为ground的spine位置
+    std::map<int, bool> spinePosMap;
+    for (SpineData* spineData : tmpData->finalAreaData->spineList) {
+        spinePosMap[getPXPYKey(spineData->pX, spineData->pY)] = true;
     }
     
     // te用于找到向上的地面，co用于其他碰撞
@@ -2321,6 +2331,10 @@ void MapCreator::handleGround(AreaTmpData* tmpData) {
             // 地面数据放入（当前地面的anchor 0.5 1 的像素位置）
             int pX = rx * TileLength + TileLength * 0.5;
             int pY = (tmpData->tH * 3 - ry + 1) * TileLength;
+            
+            // 地面上不能有spine
+            if (spinePosMap.find(getPXPYKey(pX, pY)) != spinePosMap.end()) continue;
+            
             tmpData->finalAreaData->groundInfos.push_back(pX);
             tmpData->finalAreaData->groundInfos.push_back(pY);
             
